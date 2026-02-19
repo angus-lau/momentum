@@ -1,0 +1,72 @@
+{
+  "base_path": "/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/Accounting Docs/CC Expenses",
+  "filename": "BankStatementImport.csv",
+
+  "accounts": {
+    "boa": {
+      "search": "Bank of America",
+      "option": "2111 - Credit Card Payable - Bank of America Visa 9180",
+      "folder": "BOA VISA USD 9180"
+    },
+    "td": {
+      "search": "TD Visa",
+      "option": "2108 - Credit Card Payable - TD Visa 0926",
+      "folder": "TD VISA 0926",
+      "skip": true
+    },
+    "cibc": {
+      "search": "CIBC",
+      "option": "2107 - Credit Card Payable - CIBC Costco Mastercard 2244",
+      "folder": "CIBC MC 2244"
+    },
+    "amex_4009": {
+      "search": "American Express 4009",
+      "option": "2105 - Credit Card Payable - American Express 4009",
+      "folder": "Amex Corporate 4009",
+      "bank_config": "amex_4009"
+    },
+    "amex_blue": {
+      "search": "American Express Blue",
+      "option": "2110 - Credit Card Payable - American Express Blue 1005",
+      "folder": "Amex USD Blue 1005",
+      "bank_config": "amex_blue"
+    },
+    "amex_delta": {
+      "search": "American Express Delta",
+      "option": "2109 - Credit Card Payable - American Express Delta 1003",
+      "folder": "Amex USD Delta 1003",
+      "bank_config": "amex_delta"
+    },
+    "amex_sofia": {
+      "search": "American Express Sofia",
+      "option": "2106 - Credit Card Payable - American Express Sofia 4002",
+      "folder": "Amex Sofia 4002",
+      "bank_config": "amex_sofia",
+      "dhl_filter": true
+    },
+    "bmo_cad": {
+      "search": "BMO 41547651",
+      "option": "1160 - BMO 41547651 (CAD)"
+    },
+    "bmo_usd": {
+      "search": "BMO 44569097",
+      "option": "1170 - BMO 44569097 (USD)"
+    },
+    "umpqua": {
+      "search": "Umpqua",
+      "option": "1140 - Umpqua Bank 1729 (USD)"
+    },
+    "wise_cad": {
+      "search": "Wise (CAD)",
+      "option": "1180 - Wise (CAD)"
+    },
+    "wise_eur": {
+      "search": "Wise (EUR)",
+      "option": "1195 - Wise (EUR)"
+    },
+    "wise_gbp": {
+      "search": "Wise (GBP)",
+      "option": "1190 - Wise (GBP)"
+    }
+  }
+}

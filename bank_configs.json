@@ -1,0 +1,97 @@
+{
+  "cibc": {
+    "has_header": false,
+    "date_col": 0,
+    "desc_col": 1,
+    "amount_type": "split",
+    "debit_col": 2,
+    "credit_col": 3,
+    "balance_pattern": "Total balance\\s*=\\s*\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Statement Date\\n(\\w+ \\d{1,2}, \\d{4})"
+  },
+  "amex_4009": {
+    "has_header": true,
+    "date_col": 0,
+    "desc_col": 2,
+    "amount_type": "single",
+    "amount_col": 5,
+    "negate": true,
+    "balance_pattern": "Equals New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Closing Date\\n.*?(\\w+\\s?\\d{1,2},\\s*\\d{4})\\s*$"
+  },
+  "amex_blue": {
+    "has_header": true,
+    "date_col": 0,
+    "desc_col": 1,
+    "amount_type": "single",
+    "amount_col": 4,
+    "negate": true,
+    "balance_pattern": "New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Closing Date\\s+(\\d{2}/\\d{2}/\\d{2,4})"
+  },
+  "amex_delta": {
+    "has_header": true,
+    "date_col": 0,
+    "desc_col": 1,
+    "amount_type": "single",
+    "amount_col": 2,
+    "negate": true,
+    "balance_pattern": "New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Closing Date\\s+(\\d{2}/\\d{2}/\\d{2,4})"
+  },
+  "amex_sofia": {
+    "skip_rows": 12,
+    "has_header": true,
+    "date_col": 0,
+    "desc_col": 1,
+    "amount_type": "single",
+    "amount_col": 3,
+    "negate": true,
+    "balance_pattern": "Equals New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Closing Date\\n.*?(\\w+\\s?\\d{1,2},\\s*\\d{4})\\s*$"
+  },
+  "td": {
+    "has_header": false,
+    "date_col": 0,
+    "desc_col": 1,
+    "amount_type": "split",
+    "debit_col": 2,
+    "credit_col": 3,
+    "balance_pattern": "NEW BALANCE\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "STATEMENT DATE:\\s+(\\w+ \\d{1,2}, \\d{4})"
+  },
+  "boa": {
+    "has_header": true,
+    "date_col": 0,
+    "desc_col": 2,
+    "amount_type": "single",
+    "amount_col": 4,
+    "balance_pattern": "New Balance Total\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "Statement Closing Date\\s+(\\d{2}/\\d{2}/\\d{4})"
+  },
+  "bmo": {
+    "skip_rows": 6,
+    "has_header": true,
+    "date_col": 2,
+    "desc_col": 4,
+    "amount_type": "single",
+    "amount_col": 3,
+    "negate": false
+  },
+  "umpqua": {
+    "has_header": true,
+    "date_col": 2,
+    "desc_col": 4,
+    "amount_type": "single",
+    "amount_col": 3,
+    "negate": false
+  },
+  "wise": {
+    "has_header": true,
+    "date_col": 1,
+    "desc_col": 5,
+    "amount_type": "single",
+    "amount_col": 3,
+    "negate": false
+  }
+}
