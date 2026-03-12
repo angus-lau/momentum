@@ -6,7 +6,23 @@
     },
     "amex_4009": {
       "balance": 20332.54,
+      "date": "02/09/2026"
+    },
+    "cibc": {
+      "balance": 10230.8,
+      "date": "01/21/2026"
+    },
+    "amex_blue": {
+      "balance": 15629.02,
       "date": null
+    },
+    "amex_delta": {
+      "balance": 216.08,
+      "date": null
+    },
+    "amex_sofia": {
+      "balance": 9578.01,
+      "date": "02/10/2026"
     }
   }
 }
