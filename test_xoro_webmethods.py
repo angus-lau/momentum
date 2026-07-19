@@ -6,10 +6,18 @@ ScriptService endpoints (``/WebServices/{svc}.asmx/{method}``), unwraps the
 the login page (expired cookie).
 """
 
+import datetime
 import json
 import unittest
 
-from xoro_webmethods import WebMethodClient, WebMethodError
+from xoro_webmethods import (
+    WebMethodClient,
+    WebMethodError,
+    build_bank_statement,
+    activity_rows_to_lines,
+    _fmt_stmt_amount,
+    _fmt_stmt_date,
+)
 
 
 class RecordingTransport:
@@ -104,6 +112,116 @@ class SelfHealTest(unittest.TestCase):
         with self.assertRaises(WebMethodError):
             c.call("S", "m")
         self.assertEqual(len(t.calls), 2)  # original + one retry, then give up
+
+
+class BankStatementFormatTest(unittest.TestCase):
+    def test_amount_trims_trailing_zeros_like_xoro(self):
+        self.assertEqual(_fmt_stmt_amount(-1.00), "-1")
+        self.assertEqual(_fmt_stmt_amount(-401.90), "-401.9")
+        self.assertEqual(_fmt_stmt_amount(-401.95), "-401.95")
+        self.assertEqual(_fmt_stmt_amount(10464.27), "10464.27")
+
+    def test_amount_string_passthrough(self):
+        self.assertEqual(_fmt_stmt_amount("-1.005"), "-1.005")
+
+    def test_date_iso_to_slash_no_leading_zeros(self):
+        self.assertEqual(_fmt_stmt_date("2026-06-06"), "6/6/2026")
+
+    def test_date_object_and_slash_passthrough(self):
+        self.assertEqual(_fmt_stmt_date(datetime.date(2026, 1, 21)), "1/21/2026")
+        self.assertEqual(_fmt_stmt_date("6/6/2026"), "6/6/2026")
+
+    def test_date_us_slash_strips_leading_zeros(self):
+        self.assertEqual(_fmt_stmt_date("05/31/2026"), "5/31/2026")
+
+
+class ActivityRowsTest(unittest.TestCase):
+    ROWS = [
+        {"Date": "05/31/2026", "Description": "ZONOS (CROSS-BORDER)", "Amount": "30.14"},
+        {"Date": "05/25/2026", "Description": "AUTOPAY PAYMENT - THANK YOU", "Amount": "-433.21"},
+    ]
+
+    def test_credit_card_flips_sign(self):
+        lines = activity_rows_to_lines(self.ROWS, credit_card=True)
+        stmt = build_bank_statement("FACC1", lines)["BankStatementLineArr"]
+        self.assertEqual(stmt[0]["Amount"], "-30.14")   # charge -> negative
+        self.assertEqual(stmt[0]["Date"], "5/31/2026")
+        self.assertEqual(stmt[0]["Payee"], "ZONOS (CROSS-BORDER)")
+        self.assertEqual(stmt[0]["Description"], "ZONOS (CROSS-BORDER)")
+        self.assertEqual(stmt[1]["Amount"], "433.21")   # payment -> positive
+
+    def test_no_flip_when_not_credit_card(self):
+        lines = activity_rows_to_lines(self.ROWS, credit_card=False)
+        stmt = build_bank_statement("FACC1", lines)["BankStatementLineArr"]
+        self.assertEqual(stmt[0]["Amount"], "30.14")
+        self.assertEqual(stmt[1]["Amount"], "-433.21")
+
+
+class BuildBankStatementTest(unittest.TestCase):
+    def test_builds_header_and_lines(self):
+        payload = build_bank_statement(
+            "FACC1",
+            [
+                {"date": "2026-06-06", "amount": -1.00, "payee": "P", "description": "D",
+                 "reference": "R", "cheque": "C1"},
+                {"date": "2026-06-07", "amount": 100.0},
+            ],
+            end_balance="45000",
+        )
+        self.assertEqual(
+            payload["BankStatementHeader"],
+            {"ImportTypeId": 10, "StartDate": None, "EndDate": None,
+             "StartBalance": None, "EndBalance": "45000"},
+        )
+        lines = payload["BankStatementLineArr"]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0]["AccntId"], "FACC1")
+        self.assertEqual(lines[0]["Amount"], "-1")
+        self.assertEqual(lines[0]["Date"], "6/6/2026")
+        self.assertEqual(lines[0]["Payee"], "P")
+        self.assertEqual(lines[0]["ChequeNumber"], "C1")
+        self.assertEqual(lines[0]["Seq"], 1)
+        self.assertEqual(lines[1]["Seq"], 2)
+        self.assertEqual(lines[1]["Amount"], "100")
+        # defaults for the sparse line
+        self.assertEqual(lines[1]["Payee"], "")
+        self.assertIsNone(lines[1]["ChequeNumber"])
+        self.assertFalse(lines[1]["HasError"])
+
+
+class CreateBankStatementTest(unittest.TestCase):
+    def test_posts_stringified_bankstmtdata_and_returns_envelope(self):
+        # uploadBankStatementManual double-encodes: d is a stringified envelope.
+        ok = json.dumps({"d": json.dumps({"Result": True, "Message": "", "ErrorCode": 0})})
+        c, t = client([(200, ok)])
+        env = c.create_bank_statement(
+            "FACC1", [{"date": "2026-06-06", "amount": -1.0}], end_balance="10",
+        )
+        self.assertTrue(env["Result"])
+        call = t.calls[0]
+        self.assertEqual(
+            call["url"],
+            "https://example.test/WebServices/ConnectBankWebMethods.asmx/uploadBankStatementManual",
+        )
+        body = json.loads(call["body"])
+        # the ScriptService param is a JSON *string*, not a nested object
+        self.assertIsInstance(body["bankStmtData"], str)
+        inner = json.loads(body["bankStmtData"])
+        self.assertEqual(inner["BankStatementLineArr"][0]["AccntId"], "FACC1")
+        self.assertEqual(inner["BankStatementLineArr"][0]["Amount"], "-1")
+
+    def test_result_false_raises_with_message(self):
+        bad = json.dumps({"d": json.dumps({"Result": False, "Message": "nope"})})
+        c, _ = client([(200, bad)])
+        with self.assertRaises(WebMethodError) as ctx:
+            c.create_bank_statement("FACC1", [{"date": "2026-06-06", "amount": -1.0}])
+        self.assertIn("nope", str(ctx.exception))
+
+    def test_get_bank_statement_accounts_extracts_list(self):
+        resp = json.dumps({"d": json.dumps(
+            {"Result": True, "Data": {"BankAccountList": [{"FAccountId": "F1"}]}})})
+        c, _ = client([(200, resp)])
+        self.assertEqual(c.get_bank_statement_accounts(), [{"FAccountId": "F1"}])
 
 
 if __name__ == "__main__":

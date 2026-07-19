@@ -10,9 +10,11 @@ Used by the reconciliation flow: ``getBankReconcileAccountList``,
 ``getBankReconciledTransactions``, ``saveJournalEntry``, ``finishBankRec``, etc.
 """
 
+import csv
 import json
 import os
 import urllib.request
+from decimal import Decimal
 
 import xoro_login
 
@@ -23,9 +25,120 @@ ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
 DEFAULT_BASE_URL = "https://momentum.xoro.one"
 LOGIN_MARKER = "login.aspx"
 
+# Bank-statement upload lives on this service (NOT bankdeposit / BankStatement).
+# Discovered 2026-07-19 by capturing the real UploadBankStatement.aspx UI flow.
+BANK_STMT_SERVICE = "ConnectBankWebMethods"
+IMPORT_TYPE_CSV = 10   # ImportTypeId values: CSV=10, OFX=20, QIF=30, AUTO=999
+
 
 class WebMethodError(Exception):
     """Raised when an .asmx call fails (HTTP error, or auth that won't refresh)."""
+
+
+def _fmt_stmt_amount(amount):
+    """Format a statement-line amount the way Xoro's parser emits it.
+
+    Xoro sends amounts as strings with trailing zeros trimmed (``-1.00`` -> ``-1``,
+    ``-401.90`` -> ``-401.9``); negative = debit/withdrawal, positive = deposit.
+    A string is passed through untouched so exotic values can be forced.
+    """
+    if isinstance(amount, str):
+        return amount
+    s = "%.2f" % float(amount)
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s
+
+
+def _fmt_stmt_date(date):
+    """Format a date as ``M/D/YYYY`` (no leading zeros), Xoro's line-date shape.
+
+    Accepts a ``date``/``datetime``, an ISO ``YYYY-MM-DD`` string, or a
+    ``MM/DD/YYYY`` / ``M/D/YYYY`` string (leading zeros stripped).
+    """
+    if isinstance(date, str):
+        if "-" in date:                       # ISO YYYY-MM-DD
+            y, m, d = date.split("-")
+        elif "/" in date:                     # US MM/DD/YYYY (or M/D/YYYY)
+            m, d, y = date.split("/")
+        else:
+            return date
+        return "%d/%d/%d" % (int(m), int(d), int(y))
+    return "%d/%d/%d" % (date.month, date.day, date.year)
+
+
+def activity_rows_to_lines(rows, *, credit_card=False):
+    """Map raw activity rows (``Date``, ``Description``, ``Amount``) to statement lines.
+
+    ``rows`` is an iterable of dicts (e.g. a ``csv.DictReader``). ``Description``
+    fills both ``payee`` and ``description`` (Xoro's statements duplicate them).
+
+    **Credit cards:** pass ``credit_card=True`` to multiply every amount by −1.
+    A raw card statement shows charges as positive and payments as negative, but
+    the bank-statement import wants charges negative / payments positive. Leave it
+    ``False`` for chequing/bank exports, which already use the right sign.
+    """
+    sign = Decimal(-1) if credit_card else Decimal(1)
+    lines = []
+    for r in rows:
+        desc = (r.get("Description") or "").strip()
+        amount = Decimal(str(r["Amount"]).strip()) * sign
+        lines.append({
+            "date": (r["Date"] or "").strip(),
+            "amount": amount,
+            "payee": desc,
+            "description": desc,
+        })
+    return lines
+
+
+def load_activity_csv(path, *, credit_card=False):
+    """Read an activity CSV (``Date,Description,Amount``) into statement lines.
+
+    See :func:`activity_rows_to_lines` for the ``credit_card`` sign rule.
+    """
+    with open(path, newline="") as f:
+        return activity_rows_to_lines(csv.DictReader(f), credit_card=credit_card)
+
+
+def build_bank_statement(faccount_id, lines, *, import_type_id=IMPORT_TYPE_CSV,
+                         start_date=None, end_date=None,
+                         start_balance=None, end_balance=None):
+    """Assemble the ``bankStmtData`` object for ``uploadBankStatementManual``.
+
+    ``faccount_id`` is the bank account's Xoro ``FAccountId`` (from the account
+    dropdown / ``get_bank_statement_accounts``). ``lines`` are friendly dicts:
+    required ``date`` and ``amount``; optional ``payee``, ``description``,
+    ``reference``, ``cheque``, ``allow_duplicate``.
+
+    Returns the dict shape captured from the real UI. Note the caller must
+    JSON-*stringify* this before sending (see ``create_bank_statement``): the
+    ScriptService param ``bankStmtData`` is a double-encoded JSON string.
+    """
+    header = {
+        "ImportTypeId": import_type_id,
+        "StartDate": start_date,
+        "EndDate": end_date,
+        "StartBalance": start_balance,
+        "EndBalance": end_balance,
+    }
+    line_arr = []
+    for i, ln in enumerate(lines, start=1):
+        line_arr.append({
+            "AccntId": faccount_id,
+            "AllowDuplicate": ln.get("allow_duplicate"),
+            "Amount": _fmt_stmt_amount(ln["amount"]),
+            "ChequeNumber": ln.get("cheque"),
+            "Date": _fmt_stmt_date(ln["date"]),
+            "Description": ln.get("description", ""),
+            "ErrorText": None,
+            "HasError": False,
+            "IsDuplicate": False,
+            "Payee": ln.get("payee", ""),
+            "Reference": ln.get("reference", ""),
+            "Seq": i,
+        })
+    return {"BankStatementHeader": header, "BankStatementLineArr": line_arr}
 
 
 def _http_transport(method, url, headers, body):
@@ -118,3 +231,39 @@ class WebMethodClient:
             except (ValueError, TypeError):
                 return d
         return d
+
+    # ---- bank-statement upload (ConnectBankWebMethods) ----------------
+
+    def get_bank_statement_accounts(self):
+        """Return the bank accounts eligible for statement upload.
+
+        Each item carries the ``FAccountId`` used as a line's ``AccntId``.
+        """
+        data = self.call(BANK_STMT_SERVICE, "getDataForBankStmtUpload")
+        return (data or {}).get("Data", {}).get("BankAccountList", [])
+
+    def get_last_bank_transaction(self, faccount_id):
+        """Last statement transaction for an account — a dedup/cursor helper."""
+        data = self.call(
+            BANK_STMT_SERVICE, "getLastBankTransactionFromFAccountId",
+            fAccountId=faccount_id,
+        )
+        return (data or {}).get("Data") if isinstance(data, dict) else data
+
+    def create_bank_statement(self, faccount_id, lines, **header_opts):
+        """Create a bank statement from ``lines`` (see ``build_bank_statement``).
+
+        Posts to ``ConnectBankWebMethods/uploadBankStatementManual`` with
+        ``bankStmtData`` as a JSON-stringified string (double-encoded, as the
+        real UI sends it). Returns the parsed Xoro envelope; raises
+        ``WebMethodError`` if ``Result`` is not truthy.
+        """
+        payload = build_bank_statement(faccount_id, lines, **header_opts)
+        envelope = self.call(
+            BANK_STMT_SERVICE, "uploadBankStatementManual",
+            bankStmtData=json.dumps(payload),
+        )
+        if not isinstance(envelope, dict) or not envelope.get("Result"):
+            msg = envelope.get("Message") if isinstance(envelope, dict) else envelope
+            raise WebMethodError("uploadBankStatementManual failed: %s" % msg)
+        return envelope
