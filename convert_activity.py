@@ -230,8 +230,17 @@ def write_dhl_reconcile(dhl_amounts, reconcile_path):
     print(f"  Wrote {len(dhl_amounts)} DHL amounts → {reconcile_path}")
 
 
-def convert(bank_config_key, input_path, output_path, dhl_filter=False):
-    """Convert an activity file using the specified bank config."""
+def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
+    """Parse a raw activity file into statement line dicts, sign applied per config.
+
+    Returns ``(lines, dhl_amounts)``. Each line is a dict: ``date`` (raw source
+    string), ``amount`` (float, sign already resolved via the bank's ``negate`` /
+    split-column rule), ``payee``, ``description``, ``reference``, ``cheque``.
+
+    This is the in-memory core shared by ``convert`` (which writes the import CSV)
+    and the API upload pipeline (``statement_pipeline.upload_statement``) — so the
+    sign convention lives in exactly one place.
+    """
     cfg = BANK_CONFIGS[bank_config_key]
 
     # Read rows based on file type
@@ -240,7 +249,7 @@ def convert(bank_config_key, input_path, output_path, dhl_filter=False):
     else:
         raw_rows = read_rows_csv(input_path, cfg)
 
-    rows = []
+    lines = []
     dhl_amounts = []
 
     for row in raw_rows:
@@ -272,20 +281,35 @@ def convert(bank_config_key, input_path, output_path, dhl_filter=False):
             dhl_amounts.append(amount * -1)
             continue
 
-        rows.append([date_val, f"{amount:.2f}", desc, desc, "", ""])
+        lines.append({
+            "date": date_val, "amount": amount,
+            "payee": desc, "description": desc,
+            "reference": "", "cheque": "",
+        })
+
+    return lines, dhl_amounts
+
+
+def convert(bank_config_key, input_path, output_path, dhl_filter=False):
+    """Convert an activity file to the Xoro import CSV using the bank config."""
+    lines, dhl_amounts = convert_to_lines(bank_config_key, input_path, dhl_filter=dhl_filter)
 
     with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["**Date", "**Amount", "Payee", "Description", "Reference", "ChequeNumber"])
-        writer.writerows(rows)
+        for ln in lines:
+            writer.writerow([
+                ln["date"], f'{ln["amount"]:.2f}',
+                ln["payee"], ln["description"], ln["reference"], ln["cheque"],
+            ])
 
-    print(f"  Converted {len(rows)} rows ({bank_config_key}) → {output_path}")
+    print(f"  Converted {len(lines)} rows ({bank_config_key}) → {output_path}")
 
     if dhl_filter and dhl_amounts:
         reconcile_path = os.path.join(os.path.dirname(output_path), "DHL Reconcile.xlsx")
         write_dhl_reconcile(dhl_amounts, reconcile_path)
 
-    return len(rows)
+    return len(lines)
 
 
 def convert_account(bank, month=None):

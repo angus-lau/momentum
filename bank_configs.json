@@ -27,7 +27,7 @@
     "amount_col": 4,
     "negate": true,
     "balance_pattern": "New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
-    "date_pattern": "Closing Date\\s+(\\d{2}/\\d{2}/\\d{2,4})"
+    "date_pattern": "Closing Date\\s*(\\d{2}/\\d{2}/\\d{2,4})"
   },
   "amex_delta": {
     "has_header": true,
@@ -37,7 +37,7 @@
     "amount_col": 2,
     "negate": true,
     "balance_pattern": "New Balance\\s+\\$?([\\d,]+\\.\\d{2})",
-    "date_pattern": "Closing Date\\s+(\\d{2}/\\d{2}/\\d{2,4})"
+    "date_pattern": "Closing Date\\s*(\\d{2}/\\d{2}/\\d{2,4})"
   },
   "amex_sofia": {
     "skip_rows": 12,
