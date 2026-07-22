@@ -224,5 +224,53 @@ class CreateBankStatementTest(unittest.TestCase):
         self.assertEqual(c.get_bank_statement_accounts(), [{"FAccountId": "F1"}])
 
 
+class StartReconciliationTest(unittest.TestCase):
+    @staticmethod
+    def _d(obj):
+        # ScriptService double-encodes: {"d": "<json string>"}
+        return json.dumps({"d": json.dumps(obj)})
+
+    def test_payload_is_stringified_brheaderobj_with_all_fields(self):
+        ok = self._d({"Result": True, "Data": {"Id": 941, "AccountEndBal": -489.71}})
+        c, t = client([(200, ok)])
+        data = c.start_reconciliation(
+            "FACC1", "-489.71", "06/02/2026",
+            currency_id=1001, beginning_balance=-489.71,   # supplied -> single call
+        )
+        self.assertEqual(data["Id"], 941)
+        call = t.calls[0]
+        self.assertEqual(
+            call["url"],
+            "https://example.test/WebServices/BankReconcileWebMethods.asmx/addBankRecHeader",
+        )
+        body = json.loads(call["body"])
+        self.assertIsInstance(body["brHeaderObj"], str)          # stringified, like bankStmtData
+        header = json.loads(body["brHeaderObj"])
+        self.assertEqual(header, {
+            "AccountId": "FACC1", "CurrencyId": 1001,
+            "AccountEndBal": -489.71, "LastStatementDate": "06/02/2026",
+            "AccountBegBal": -489.71,
+        })
+
+    def test_beginning_balance_and_currency_auto_resolved(self):
+        last = self._d({"Result": True, "Data": {"beginningBal": -433.21}})
+        accts = self._d({"Result": True, "Data": {"BankAccountList": [
+            {"FAccountingId": "FACC1", "CurrencyId": 1001}]}})
+        add = self._d({"Result": True, "Data": {"Id": 942}})
+        c, t = client([(200, last), (200, accts), (200, add)])
+        c.start_reconciliation("FACC1", "-489.71", "06/02/2026")
+        header = json.loads(json.loads(t.calls[2]["body"])["brHeaderObj"])
+        self.assertEqual(header["AccountBegBal"], -433.21)   # auto-carried
+        self.assertEqual(header["CurrencyId"], 1001)          # resolved from account
+
+    def test_result_false_raises(self):
+        bad = self._d({"Result": False, "Message": "no good"})
+        c, _ = client([(200, bad)])
+        with self.assertRaises(WebMethodError) as ctx:
+            c.start_reconciliation("FACC1", "-489.71", "06/02/2026",
+                                   currency_id=1001, beginning_balance=0)
+        self.assertIn("no good", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

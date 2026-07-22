@@ -30,6 +30,10 @@ LOGIN_MARKER = "login.aspx"
 BANK_STMT_SERVICE = "ConnectBankWebMethods"
 IMPORT_TYPE_CSV = 10   # ImportTypeId values: CSV=10, OFX=20, QIF=30, AUTO=999
 
+# Bank reconciliation (the "Reconcile Now" -> start flow) lives here.
+# Discovered 2026-07-19 by reading BankRec.aspx's addBankRecHeader call.
+BANK_RECONCILE_SERVICE = "BankReconcileWebMethods"
+
 
 class WebMethodError(Exception):
     """Raised when an .asmx call fails (HTTP error, or auth that won't refresh)."""
@@ -267,3 +271,68 @@ class WebMethodClient:
             msg = envelope.get("Message") if isinstance(envelope, dict) else envelope
             raise WebMethodError("uploadBankStatementManual failed: %s" % msg)
         return envelope
+
+    # ---- reconciliation setup (BankReconcileWebMethods) ---------------
+
+    def get_last_reconcile_header(self, faccount_id):
+        """Return the account's last reconcile header (source of the beginning balance).
+
+        The ``Data`` includes ``beginningBal`` (which auto-carries into the next
+        reconciliation) and ``lastStatementDate``.
+        """
+        env = self.call(
+            BANK_RECONCILE_SERVICE, "getLastReconcileHeaderDetailsFromAccountId",
+            bnkrcAccntId=faccount_id,
+        )
+        return (env or {}).get("Data") if isinstance(env, dict) else env
+
+    def _currency_id_for_account(self, faccount_id):
+        for a in self.get_bank_statement_accounts():
+            if a.get("FAccountingId") == faccount_id:
+                return a.get("CurrencyId")
+        return None
+
+    def start_reconciliation(self, faccount_id, ending_balance, ending_date,
+                             *, currency_id=None, beginning_balance=None):
+        """Start a bank reconciliation, setting its ending balance + statement date.
+
+        Mirrors the Reconcile Centre's "Reconcile Now" -> start: a single
+        ``addBankRecHeader`` call that creates the reconciliation. Only the setup
+        is automated — line matching stays manual.
+
+        The **beginning balance auto-carries** from the prior reconciliation and is
+        read here when not supplied; likewise ``currency_id`` is resolved from the
+        account. ``ending_balance``/``ending_date`` map to the statement's
+        ``EndBalance``/``EndDate`` (for a credit card, ``ending_balance`` is already
+        negated by the statement pipeline).
+
+        Returns the created reconcile header (``Data``); raises ``WebMethodError``
+        if ``Result`` is not truthy. NB ``brHeaderObj`` is a JSON-stringified string
+        (double-encoded), like ``bankStmtData``.
+        """
+        if beginning_balance is None:
+            last = self.get_last_reconcile_header(faccount_id)
+            beginning_balance = (last or {}).get("beginningBal") if isinstance(last, dict) else None
+        if currency_id is None:
+            currency_id = self._currency_id_for_account(faccount_id)
+        header = {
+            "AccountId": faccount_id,
+            "CurrencyId": currency_id,
+            "AccountEndBal": float(ending_balance),
+            "LastStatementDate": ending_date,
+            "AccountBegBal": beginning_balance,
+        }
+        envelope = self.call(
+            BANK_RECONCILE_SERVICE, "addBankRecHeader",
+            brHeaderObj=json.dumps(header),
+        )
+        if not isinstance(envelope, dict) or not envelope.get("Result"):
+            msg = envelope.get("Message") if isinstance(envelope, dict) else envelope
+            raise WebMethodError("addBankRecHeader failed: %s" % msg)
+        return envelope.get("Data", envelope)
+
+    def void_reconciliation(self, bank_rec_header_id):
+        """Void/delete a reconciliation (reverts ending balance to the prior one)."""
+        return self.call(
+            BANK_RECONCILE_SERVICE, "voidBankRec", bankRecHeaderId=bank_rec_header_id,
+        )

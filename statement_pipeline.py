@@ -53,17 +53,22 @@ def _header_from_pdf(pdf_path, bank_config_key, is_credit_card):
     return closing_date, end_balance
 
 
-def upload_statement(account_key, activity_path, pdf_path=None, *, client=None, commit=True):
+def upload_statement(account_key, activity_path, pdf_path=None, *, client=None,
+                     commit=True, start_reconcile=False):
     """Convert a raw export (+PDF) and upload it as a Xoro bank statement.
 
-    ``account_key``   key in ``upload_configs.json`` (e.g. ``"amex_delta"``).
-    ``activity_path`` raw bank export (csv / xls / xlsx).
-    ``pdf_path``      statement PDF for closing date + balance (optional).
-    ``commit``        when ``False``, resolve + build the payload but do NOT post
-                      (a read-only dry-run preview).
+    ``account_key``    key in ``upload_configs.json`` (e.g. ``"amex_delta"``).
+    ``activity_path``  raw bank export (csv / xls / xlsx).
+    ``pdf_path``       statement PDF for closing date + balance (optional).
+    ``commit``         when ``False``, resolve + build the payload but do NOT post
+                       (a read-only dry-run preview).
+    ``start_reconcile`` when ``True`` (and committing), also start the reconciliation
+                       with the same ending balance + date (line matching stays
+                       manual). Needs a PDF so the balance/date are known.
 
     Returns a summary dict. With ``commit=False`` it includes ``payload`` (the exact
-    ``bankStmtData`` object); with ``commit=True`` it includes the Xoro ``envelope``.
+    ``bankStmtData`` object); with ``commit=True`` it includes the Xoro ``envelope``,
+    plus ``reconciliation`` when ``start_reconcile`` is set.
     """
     acct = ca.ACCOUNTS[account_key]
     bank_config_key = acct.get("bank_config", account_key)
@@ -97,4 +102,11 @@ def upload_statement(account_key, activity_path, pdf_path=None, *, client=None, 
         return summary
 
     summary["envelope"] = client.create_bank_statement(faccount_id, lines, **header)
+
+    if start_reconcile:
+        if end_balance is None or end_date is None:
+            raise ValueError("start_reconcile needs a PDF (ending balance + date)")
+        summary["reconciliation"] = client.start_reconciliation(
+            faccount_id, end_balance, end_date,
+        )
     return summary
