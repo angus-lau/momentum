@@ -129,6 +129,14 @@ def parse_yvrir(full_text):
                 # the duplicated amount is excl-tax then incl-tax; for YVRIR they match
                 charges[name] = money(m.group(2))
 
+        # LOW VALUE REGULATORY TAX (e.g. NZ low-value-goods tax) wraps in the PDF as
+        # "LOW VALUE <amt> <amt> ... REGULATORY TAX", so the full-name match above
+        # misses it. Routes to Duties & Brokerage via allocate()'s else branch.
+        if "REGULATORY TAX" in block:
+            m = re.search(r"LOW VALUE(?:\s+REGULATORY\s+TAX)?\s+([\d.,]+)\s+([\d.,]+)", block)
+            if m:
+                charges["LOW VALUE REGULATORY TAX"] = money(m.group(2))
+
         shipments.append({"awb": awb, "country": dest_country, "charges": charges})
 
     inv["shipments"] = shipments
