@@ -34,9 +34,30 @@ IMPORT_TYPE_CSV = 10   # ImportTypeId values: CSV=10, OFX=20, QIF=30, AUTO=999
 # Discovered 2026-07-19 by reading BankRec.aspx's addBankRecHeader call.
 BANK_RECONCILE_SERVICE = "BankReconcileWebMethods"
 
+# Bank deposits (create from undeposited payments). Cracked 2026-07-24 by
+# capturing a real BankDeposit.aspx save.
+BANK_DEPOSIT_SERVICE = "BankDepositWebMethods"
+
 
 class WebMethodError(Exception):
     """Raised when an .asmx call fails (HTTP error, or auth that won't refresh)."""
+
+
+def _find_dict_list(obj, key):
+    """Recursively find the first list of dicts whose items contain ``key``."""
+    if isinstance(obj, list):
+        if obj and isinstance(obj[0], dict) and key in obj[0]:
+            return obj
+        for x in obj:
+            found = _find_dict_list(x, key)
+            if found:
+                return found
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            found = _find_dict_list(v, key)
+            if found:
+                return found
+    return []
 
 
 def _fmt_stmt_amount(amount):
@@ -336,3 +357,45 @@ class WebMethodClient:
         return self.call(
             BANK_RECONCILE_SERVICE, "voidBankRec", bankRecHeaderId=bank_rec_header_id,
         )
+
+    # ---- bank deposits (BankDepositWebMethods) ------------------------
+
+    def get_undeposited_transactions(self, currency_id, *, size=3000):
+        """Undeposited payment rows for a currency (each keyed by ``ChequeNo``).
+
+        For Shopify the ``ChequeNo`` (== ``LineRefNo2``) is the Shopify order
+        number — the match key for building a deposit.
+        """
+        d = self.call(
+            BANK_DEPOSIT_SERVICE, "getBankDepositLinkedUndepositedTransactions",
+            currencyId=currency_id, size=size, number=1,
+            searchExp="[]", sorder="desc", sname="TXN_DATE",
+        )
+        return _find_dict_list(d, "ChequeNo")
+
+    def get_data_for_bank_deposit(self):
+        d = self.call(BANK_DEPOSIT_SERVICE, "getDataForBankDeposit")
+        return (d or {}).get("Data") if isinstance(d, dict) else d
+
+    def create_bank_deposit(self, deposit_obj):
+        """Create a bank deposit. ``deposit_obj`` = ``{BankDepositHeaderObj, BankDepositDetailArr}``.
+
+        Posts ``bankDepositObjJson`` JSON-stringified (double-encoded). Returns the
+        created header (``Data``, incl. ``Id``/``BankDepositNumber``).
+        """
+        env = self.call(
+            BANK_DEPOSIT_SERVICE, "createBankDeposit",
+            bankDepositObjJson=json.dumps(deposit_obj),
+        )
+        if not isinstance(env, dict) or not env.get("Result"):
+            msg = env.get("Message") if isinstance(env, dict) else env
+            raise WebMethodError("createBankDeposit failed: %s" % msg)
+        data = env.get("Data", env)
+        # the created deposit's Id/BankDepositNumber sit under BankDepositHeaderObj
+        if isinstance(data, dict) and isinstance(data.get("BankDepositHeaderObj"), dict):
+            return data["BankDepositHeaderObj"]
+        return data
+
+    def void_bank_deposit(self, bank_deposit_id):
+        """Void/delete a bank deposit (returns its payments to undeposited funds)."""
+        return self.call(BANK_DEPOSIT_SERVICE, "voidBankDeposit", bankDepositId=bank_deposit_id)
