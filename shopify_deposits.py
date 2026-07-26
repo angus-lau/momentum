@@ -86,19 +86,27 @@ def get_payout(amount=None, payout_id=None, date_min=None, date_max=None):
     if not p:
         raise ValueError("payout not found")
     txns = _shopify("shopify_payments/balance/transactions.json?payout_id=%s&limit=250" % p["id"])["transactions"]
-    charges = [t for t in txns if t["type"] in ("charge", "refund")]
-    ids = [str(t["source_order_id"]) for t in charges if t.get("source_order_id")]
+    # resolve order numbers (some reference deleted orders -> stay None)
+    ids = list(dict.fromkeys(str(t["source_order_id"]) for t in txns if t.get("source_order_id")))
     onum = {}
     if ids:
         got = _shopify("orders.json?ids=%s&status=any&fields=id,order_number&limit=250" % ",".join(ids))["orders"]
         onum = {str(o["id"]): str(o["order_number"]) for o in got}
-    orders, fees = [], 0.0
-    for t in charges:
-        orders.append({"order": onum.get(str(t.get("source_order_id"))),
-                       "amount": float(t["amount"]), "fee": float(t["fee"]), "type": t["type"]})
-        fees += float(t["fee"])
+    orders, adjustments, fees = [], [], 0.0
+    for t in txns:
+        typ = t["type"]
+        if typ == "payout":          # the payout line itself, not a deposit item
+            continue
+        amt, fee = float(t["amount"]), float(t["fee"])
+        fees += fee
+        onm = onum.get(str(t.get("source_order_id"))) if t.get("source_order_id") else None
+        if typ in ("charge", "refund"):
+            orders.append({"order": onm, "amount": amt, "type": typ})
+        else:                        # debit / credit / adjustment / dispute ... -> adjustment
+            adjustments.append({"amount": amt, "type": typ, "order": onm})
     return {"id": p["id"], "date": p["date"], "amount": float(p["amount"]),
-            "currency": p["currency"], "fees": round(fees, 2), "orders": orders}
+            "currency": p["currency"], "fees": round(fees, 2),
+            "orders": orders, "adjustments": adjustments}
 
 
 def _iso_to_slash(d):
@@ -121,7 +129,11 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
             by_cheque[str(r["ChequeNo"])].append(r)
     matched, missing = [], []
     used = set()
+    matched_shopify = 0.0   # sum of Shopify amounts for the orders we actually matched
     for o in payout["orders"]:
+        if o["order"] is None:                              # payout-level txn, no order #
+            missing.append("no-order#(%s %.2f)" % (o["type"], o["amount"]))
+            continue
         want_neg = o["amount"] < 0                          # refund -> negative Xoro row
         cands = [r for r in by_cheque.get(str(o["order"]), []) if id(r) not in used]
         # prefer rows with the same sign as the Shopify amount (deposit vs refund),
@@ -135,18 +147,29 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
             r["LinkedFlag"] = True
             r["LineNumber"] = len(matched)
             matched.append(r)
+            matched_shopify += o["amount"]
         else:
-            missing.append(o["order"])
+            missing.append(str(o["order"]))
     cur = payout["currency"]
     cid = CURRENCY_ID[cur]
+
+    # Adjustments (debit/credit/etc.): small ones (|amount| < 50) book to the CC
+    # adjustments GL (same account as fees: 7456 USD / 7455 CAD); larger ones go to
+    # the memo for manual handling.
+    for a in payout.get("adjustments", []):
+        if abs(a["amount"]) < 50:
+            matched.append(_adjustment_line(FEE_ACCT[cur], a["amount"], cid, "CC adjustment", len(matched)))
+        else:
+            missing.append("%s-adj(%.2f)" % (a["type"], a["amount"]))
 
     # Fee line (negative to the CC-processing-fee GL), like the auto-created deposits.
     matched.append(_adjustment_line(FEE_ACCT[cur], -payout["fees"], cid, "Shopify fees", len(matched)))
 
-    # FX line to balance the deposit exactly to the payout (Xoro amounts differ from
-    # Shopify's payout currency by rounding). Goes to the Exchange Rate Gain/Loss GL.
-    subtotal = round(sum(float(r["Amount"]) for r in matched), 2)
-    fx = round(payout["amount"] - subtotal, 2)
+    # FX line = rounding on the MATCHED orders only (Shopify basis - Xoro basis). It does
+    # NOT absorb unmatched / no-order amounts -- when orders are missing the deposit is
+    # legitimately short of the payout (surfaced by the caller as not-balancing).
+    matched_xoro = round(sum(float(r["Amount"]) for r in matched if r.get("LinkedFlag")), 2)
+    fx = round(matched_shopify - matched_xoro, 2)
     if abs(fx) >= 0.01:
         matched.append(_adjustment_line(FX_ACCT[cur], fx, cid, "FX rounding", len(matched)))
 
@@ -158,7 +181,7 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
         "HomeCurrencyId": 1, "HomeCurrencyName": "CAD", "ExchangeRate": str(exchange_rate),
         "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
         "CashBackAccntName": "", "CashBackAmount": 0,
-        "Memo": ("missing: " + " ".join(missing)) if missing else "",
+        "Memo": "shopify consolidated" + (" - " + " ".join(missing) if missing else ""),
     }
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": matched}, matched, missing
 
