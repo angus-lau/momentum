@@ -20,35 +20,83 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
 SHOPIFY_API_VERSION = "2026-01"
 
-# Xoro accounts (FAccountingId) keyed by deposit currency.
-DEPOSIT_TO_ACCT = {"USD": "B7D04105A81AED1CB3EA3AB9426A"}      # 1140 - Umpqua Bank 1729 (USD)
-FEE_ACCT = {
-    "USD": "B7D1B02C7EB5CD837D800F3B405B",                    # 7456 - CC Processing Fees (USD)
-    "CAD": "B7D04105A81C07FA7E88869F40C7",                    # 7455 - CC Processing Fees
+# ---- Per-store configuration -----------------------------------------------
+# We run this reconcile for MORE THAN ONE Shopify store, and each store deposits
+# into its OWN Xoro accounts. A store maps its payout currency ->
+#   deposit : the bank account the deposit lands in
+#   fee     : CC-processing-fee account (also used for small CC adjustments)
+#   fx      : exchange-rate gain/loss account (FX rounding)
+# Every account carries id + display Name/TypeId/Currency so the deposit line
+# resolves to a *named* account in Xoro (a line with only an id renders blank in
+# the UI). Look ids up from AccountingWebMethods.getAllAccountsForApi (FAccountingId
+# = Id, FAccountTypeId = TypeId) when adding a store.
+STORES = {
+    "momentum": {  # momentum-watch-teifi-digital  (USD payouts)
+        "label": "Momentum Watch (US)",
+        "store_env": "SHOPIFY_STORE",          # .env key holding the *.myshopify.com domain
+        "token_env": "SHOPIFY_ADMIN_TOKEN",    # .env key holding the shpat_ Admin API token
+        "accounts": {
+            "USD": {
+                "deposit": {"Id": "B7D04105A81AED1CB3EA3AB9426A", "Name": "Umpqua Bank 1729 (USD)",
+                            "CurrencyId": 1001, "CurrencyName": "USD"},                              # 1140
+                "fee":     {"Id": "B7D1B02C7EB5CD837D800F3B405B", "Name": "Credit Card Processing Fees (USD)",
+                            "TypeId": 1034, "CurrencyId": 1001, "CurrencyName": "USD"},              # 7456
+                "fx":      {"Id": "B7E6DB72935ED49A7DA809A1468B", "Name": "Exchange Rate Gain/Loss - USD",
+                            "TypeId": 1016, "CurrencyId": 1001, "CurrencyName": "USD"},              # 8151
+            },
+        },
+    },
+    "service_center": {  # ca-momentumwatch  "Momentum Watches Service Center" (CAD payouts)
+        "label": "Momentum Watches Service Center (CAD)",
+        "store_env": "SHOPIFY_STORE_2",        # ca-momentumwatch.myshopify.com
+        "token_env": "SHOPIFY_ADMIN_TOKEN_2",  # shpat_ token (same app, minted via `shopify_oauth.py _2`)
+        "accounts": {
+            "CAD": {
+                "deposit": {"Id": "72FF68D10C373530638D3162C4127", "Name": "BMO 41547651 (CAD)",
+                            "CurrencyId": 1, "CurrencyName": "CAD"},                                 # 1160
+                "fee":     {"Id": "B7D04105A81C07FA7E88869F40C7", "Name": "Credit Card Processing Fees",
+                            "TypeId": 1034, "CurrencyId": 1, "CurrencyName": "CAD"},                 # 7455
+                "fx":      {"Id": "1099", "Name": "Exchange Rate Gain/Loss",
+                            "TypeId": 1016, "CurrencyId": 1, "CurrencyName": "CAD"},                 # 8150
+            },
+        },
+    },
 }
-FX_ACCT = {
-    "USD": "B7E6DB72935ED49A7DA809A1468B",                    # 8151 - Exchange Rate Gain/Loss - USD
-    "CAD": "1099",                                            # 8150 - Exchange Rate Gain/Loss (CAD)
-}
-CURRENCY_ID = {"USD": 1001, "CAD": 1}
+DEFAULT_STORE = "momentum"
 
-# Generic Shopify cash-sale customer used on fee/FX adjustment lines (from a real deposit).
-ADJ_ENTITY_ID = "E533E494-F1CB-4F1A-A51E-4C7AA9483208"        # "Cash Sale - Shopify CA"
-ADJ_ENTITY_NAME = "Cash Sale - Shopify CA"
+CURRENCY_ID = {"USD": 1001, "CAD": 1}
 ADJ_STORE_ID = 10001
 
 
-def _adjustment_line(accnt_id, amount, currency_id, memo, line_number):
-    """A non-payment deposit line (fee or FX) drawn from a GL account."""
+def _store_accounts(store, currency):
+    """The {deposit, fee, fx} account set for ``store``'s ``currency`` payouts."""
+    cfg = STORES.get(store)
+    if not cfg:
+        raise KeyError("unknown store %r; configured: %s" % (store, list(STORES)))
+    accts = cfg["accounts"].get(currency)
+    if not accts:
+        raise KeyError("store %r has no accounts configured for %s payouts" % (store, currency))
+    return accts
+
+
+def _adjustment_line(acct, amount, memo, line_number, txn_date):
+    """A non-payment deposit line (fee or FX) drawn from GL account ``acct``.
+
+    ``acct`` is a FEE_ACCOUNT/FX_ACCOUNT entry (id + display name/type/currency),
+    so the line shows its named account in Xoro. No entity — these are straight GL
+    postings. ``txn_date`` (slash format) is the payout date so every adjustment
+    sits on the same date as the payout.
+    """
     return {
         "AllowDuplicateThirdPartyRefNo": False, "Amount": round(amount, 2), "BankDepositId": 0,
         "ChequeNo": "", "DeleteFlag": False,
-        "DepositFromAccntCurrencyId": currency_id, "DepositFromAccntId": accnt_id,
-        "DepositFromAccntTypeId": 0,
-        "EntityAccountId": ADJ_ENTITY_ID, "EntityName": ADJ_ENTITY_NAME,
-        "EntityTypeId": 10, "EntityTypeName": "customer",
+        "DepositFromAccntCurrencyId": acct["CurrencyId"], "DepositFromAccntCurrencyName": acct["CurrencyName"],
+        "DepositFromAccntId": acct["Id"], "DepositFromAccntName": acct["Name"],
+        "DepositFromAccntTypeId": acct["TypeId"],
+        "EntityAccountId": "", "EntityName": "", "EntityTypeId": 0, "EntityTypeName": "",
         "Id": 0, "LineNumber": line_number,
         "LinkedFlag": None, "LinkedTxnTableId": 0,
+        "TxnDate": txn_date, "LinkedTxnDate": txn_date,
         "Memo": memo, "StoreId": ADJ_STORE_ID, "StoreName": "CA",
     }
 
@@ -61,36 +109,41 @@ def _env(key):
     return None
 
 
-def _shopify(path):
-    store, token = _env("SHOPIFY_STORE"), _env("SHOPIFY_ADMIN_TOKEN")
+def _shopify(path, store=DEFAULT_STORE):
+    cfg = STORES.get(store) or {}
+    domain = _env(cfg.get("store_env", "SHOPIFY_STORE"))
+    token = _env(cfg.get("token_env", "SHOPIFY_ADMIN_TOKEN"))
+    if not domain or not token:
+        raise RuntimeError("missing Shopify creds for store %r (set %s / %s in .env)"
+                           % (store, cfg.get("store_env"), cfg.get("token_env")))
     req = urllib.request.Request(
-        "https://%s/admin/api/%s/%s" % (store, SHOPIFY_API_VERSION, path),
+        "https://%s/admin/api/%s/%s" % (domain, SHOPIFY_API_VERSION, path),
         headers={"X-Shopify-Access-Token": token, "Accept": "application/json"},
     )
     return json.loads(urllib.request.urlopen(req, timeout=30).read().decode())
 
 
-def get_payout(amount=None, payout_id=None, date_min=None, date_max=None):
+def get_payout(amount=None, payout_id=None, date_min=None, date_max=None, store=DEFAULT_STORE):
     """Return a payout dict with its orders (order_number, amount, fee, type) + total fees."""
     if payout_id:
-        payouts = [_shopify("shopify_payments/payouts/%s.json" % payout_id)["payout"]]
+        payouts = [_shopify("shopify_payments/payouts/%s.json" % payout_id, store)["payout"]]
     else:
         q = "shopify_payments/payouts.json?limit=250"
         q += ("&date_min=%s" % date_min) if date_min else ""
         q += ("&date_max=%s" % date_max) if date_max else ""
-        payouts = _shopify(q)["payouts"]
+        payouts = _shopify(q, store)["payouts"]
     if amount is not None:
         p = next((x for x in payouts if abs(float(x["amount"]) - amount) < 0.005), None)
     else:
         p = payouts[0]
     if not p:
         raise ValueError("payout not found")
-    txns = _shopify("shopify_payments/balance/transactions.json?payout_id=%s&limit=250" % p["id"])["transactions"]
+    txns = _shopify("shopify_payments/balance/transactions.json?payout_id=%s&limit=250" % p["id"], store)["transactions"]
     # resolve order numbers (some reference deleted orders -> stay None)
     ids = list(dict.fromkeys(str(t["source_order_id"]) for t in txns if t.get("source_order_id")))
     onum = {}
     if ids:
-        got = _shopify("orders.json?ids=%s&status=any&fields=id,order_number&limit=250" % ",".join(ids))["orders"]
+        got = _shopify("orders.json?ids=%s&status=any&fields=id,order_number&limit=250" % ",".join(ids), store)["orders"]
         onum = {str(o["id"]): str(o["order_number"]) for o in got}
     orders, adjustments, fees = [], [], 0.0
     for t in txns:
@@ -114,13 +167,13 @@ def _iso_to_slash(d):
     return "%d/%d/%d" % (int(m), int(dd), int(y))
 
 
-def build_deposit(payout, undeposited_rows, exchange_rate="1"):
+def build_deposit(payout, undeposited_rows, exchange_rate="1", store=DEFAULT_STORE):
     """Return (bankDepositObj, matched_rows, missing_orders).
 
     An order can have several undeposited rows with the same ``ChequeNo`` (e.g. an
     original deposit *and* a refund), so match on the **signed amount** — a refund
     (negative Shopify amount) picks the negative row, a charge picks the positive
-    one — and never reuse a row.
+    one — and never reuse a row. Deposit/fee/FX accounts come from ``store``'s config.
     """
     from collections import defaultdict
     by_cheque = defaultdict(list)
@@ -152,18 +205,20 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
             missing.append(str(o["order"]))
     cur = payout["currency"]
     cid = CURRENCY_ID[cur]
+    accts = _store_accounts(store, cur)
+    pdate = _iso_to_slash(payout["date"])   # adjustments all sit on the payout date
 
     # Adjustments (debit/credit/etc.): small ones (|amount| < 50) book to the CC
-    # adjustments GL (same account as fees: 7456 USD / 7455 CAD); larger ones go to
-    # the memo for manual handling.
+    # adjustments GL (same account as the fee line); larger ones go to the memo for
+    # manual handling.
     for a in payout.get("adjustments", []):
         if abs(a["amount"]) < 50:
-            matched.append(_adjustment_line(FEE_ACCT[cur], a["amount"], cid, "CC adjustment", len(matched)))
+            matched.append(_adjustment_line(accts["fee"], a["amount"], "CC adjustment", len(matched), pdate))
         else:
             missing.append("%s-adj(%.2f)" % (a["type"], a["amount"]))
 
     # Fee line (negative to the CC-processing-fee GL), like the auto-created deposits.
-    matched.append(_adjustment_line(FEE_ACCT[cur], -payout["fees"], cid, "Shopify fees", len(matched)))
+    matched.append(_adjustment_line(accts["fee"], -payout["fees"], "Shopify fees", len(matched), pdate))
 
     # FX line = rounding on the MATCHED orders only (Shopify basis - Xoro basis). It does
     # NOT absorb unmatched / no-order amounts -- when orders are missing the deposit is
@@ -171,24 +226,28 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
     matched_xoro = round(sum(float(r["Amount"]) for r in matched if r.get("LinkedFlag")), 2)
     fx = round(matched_shopify - matched_xoro, 2)
     if abs(fx) >= 0.01:
-        matched.append(_adjustment_line(FX_ACCT[cur], fx, cid, "FX rounding", len(matched)))
+        matched.append(_adjustment_line(accts["fx"], fx, "FX rounding", len(matched), pdate))
 
+    bank = accts["deposit"]
     header = {
         "Id": -1, "TxnId": None, "TxnNo": -1, "TxnDate": _iso_to_slash(payout["date"]),
         "BankDepositNumber": None,
-        "DepositToAccntId": DEPOSIT_TO_ACCT[cur], "DepositToAccntCurrencyId": cid,
+        "DepositToAccntId": bank["Id"], "DepositToAccntName": bank["Name"],
+        "DepositToAccntCurrencyId": cid,
         "TotalAmount": 0, "CurrencyCode": cur, "CurrencyId": cid,
         "HomeCurrencyId": 1, "HomeCurrencyName": "CAD", "ExchangeRate": str(exchange_rate),
         "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
         "CashBackAccntName": "", "CashBackAmount": 0,
-        "Memo": "shopify consolidated" + (" - " + " ".join(missing) if missing else ""),
+        # Anything unmatched (deleted/no-order charges, unfound orders, big adjustments)
+        # means the deposit is short of the payout -> flag ERROR in the memo for review.
+        "Memo": "shopify consolidated" + (" - ERROR: " + " ".join(missing) if missing else ""),
     }
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": matched}, matched, missing
 
 
 def create_shopify_deposit(amount=None, payout_id=None, date_min=None, date_max=None,
-                           client=None, dry_run=True):
-    payout = get_payout(amount=amount, payout_id=payout_id, date_min=date_min, date_max=date_max)
+                           client=None, dry_run=True, store=DEFAULT_STORE):
+    payout = get_payout(amount=amount, payout_id=payout_id, date_min=date_min, date_max=date_max, store=store)
     client = client or WebMethodClient.from_config()
     cur = payout["currency"]
     undep = client.get_undeposited_transactions(CURRENCY_ID[cur])
@@ -200,11 +259,12 @@ def create_shopify_deposit(amount=None, payout_id=None, date_min=None, date_max=
         rate = str(hc.get("ExchangeRate") or hc.get("Rate") or rate)
     except Exception:  # noqa: BLE001
         pass
-    obj, matched, missing = build_deposit(payout, undep, exchange_rate=rate)
+    obj, matched, missing = build_deposit(payout, undep, exchange_rate=rate, store=store)
     det = obj["BankDepositDetailArr"]
     deposit_total = round(sum(float(r["Amount"]) for r in det), 2)
     payment_lines = sum(1 for r in det if r.get("LinkedFlag"))
-    fx = next((r["Amount"] for r in det if r.get("DepositFromAccntId") == FX_ACCT[cur]), 0.0)
+    fx_id = _store_accounts(store, cur)["fx"]["Id"]
+    fx = next((r["Amount"] for r in det if r.get("DepositFromAccntId") == fx_id), 0.0)
     summary = {
         "payout": {k: payout[k] for k in ("id", "date", "amount", "currency", "fees")},
         "undeposited_pulled": len(undep),

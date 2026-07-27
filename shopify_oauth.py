@@ -8,12 +8,20 @@ run the OAuth Authorization Code Grant once:
   3. we exchange the code (client_id + client_secret) for an offline access token,
   4. the token is written to .env as SHOPIFY_ADMIN_TOKEN and never expires.
 
-Reads SHOPIFY_STORE / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET from .env.
+Reads SHOPIFY_STORE / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET from .env and
+writes the token to SHOPIFY_ADMIN_TOKEN.
+
+MULTI-STORE: pass a suffix to target a second store's keys without clobbering the
+first. ``python3 shopify_oauth.py _2`` reads SHOPIFY_STORE_2 (and, if present,
+SHOPIFY_CLIENT_ID_2 / SHOPIFY_CLIENT_SECRET_2 — otherwise it reuses the un-suffixed
+client id/secret, i.e. the SAME app installed on another store) and writes the
+token to SHOPIFY_ADMIN_TOKEN_2.
 
 PREREQUISITE: in the app's Dev Dashboard -> Configuration, add this exact
 allowed redirect URL:  http://localhost:3456/callback
 
-Run:  python3 shopify_oauth.py
+Run:  python3 shopify_oauth.py          # first (US) store
+      python3 shopify_oauth.py _2       # second store (e.g. CAD service center)
 """
 
 import http.server
@@ -59,11 +67,17 @@ def set_env(key, value):
         f.writelines(lines)
 
 
-STORE = env("SHOPIFY_STORE")
-CLIENT_ID = env("SHOPIFY_CLIENT_ID")
-CLIENT_SECRET = env("SHOPIFY_CLIENT_SECRET")
+# Optional suffix (e.g. "_2") selects a second store's env keys.
+SUFFIX = sys.argv[1] if len(sys.argv) > 1 else ""
+TOKEN_KEY = "SHOPIFY_ADMIN_TOKEN" + SUFFIX
+
+STORE = env("SHOPIFY_STORE" + SUFFIX)
+# Reuse the base app's client id/secret when the suffixed keys aren't set (same app
+# installed on another store).
+CLIENT_ID = env("SHOPIFY_CLIENT_ID" + SUFFIX) or env("SHOPIFY_CLIENT_ID")
+CLIENT_SECRET = env("SHOPIFY_CLIENT_SECRET" + SUFFIX) or env("SHOPIFY_CLIENT_SECRET")
 if not all([STORE, CLIENT_ID, CLIENT_SECRET]):
-    sys.exit("Missing SHOPIFY_STORE / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET in .env")
+    sys.exit("Missing SHOPIFY_STORE%s / SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET in .env" % SUFFIX)
 
 STATE = secrets.token_urlsafe(16)
 AUTHORIZE_URL = (
@@ -136,8 +150,8 @@ def main():
     while "token" not in result and "error" not in result:
         srv.handle_request()
     if result.get("token"):
-        set_env("SHOPIFY_ADMIN_TOKEN", result["token"])
-        print("\n✅ Offline access token saved to .env as SHOPIFY_ADMIN_TOKEN")
+        set_env(TOKEN_KEY, result["token"])
+        print("\n✅ Offline access token saved to .env as %s" % TOKEN_KEY)
     else:
         print("\n❌ Failed: %s" % result.get("error"))
 
