@@ -289,6 +289,32 @@ Probed read-only 2026-06-23 via the `/Xerp` bypass. Route convention `Xerp/{cont
 
 ---
 
+## Cross-check against the public docs site (`docs.xorosoft.com/developers-api`) — 2026-08-22
+
+Xoro also publishes a much broader **public** API reference (separate from the 5-endpoint `.docx` guide above), covering GL/accounting, invoices, credit memos, customer deposits, bills/item receipts, payments, vendors, vendor credits, and tax codes.
+
+**That doc's own base URL/auth is a different system we don't have credentials for:** base URL `https://res.xorosoft.io/` (confirmed live — returns a real IIS 404 page, not a DNS failure), auth = **HTTP Basic** (`API Key` as username, `API Secret` as password, from a **"Private App"** you create inside Xoro's UI), rate-limited to 2 req/s. Probed unauthenticated `GET res.xorosoft.io/api/xerp/tax/gettaxcodes` → `401`. We have no Private App key for this tenant, so this path is **blocked** until someone generates one in the Xoro UI. Note `momentum.xoro.one/api/xerp/...` (the documented *path*, our existing *domain*) just `302`s to login — the two don't mix.
+
+**The good news: most of the publicly-documented endpoints already exist on our own `momentum.xoro.one` under the same `Xerp` bypass we use for everything else** — same route convention, same envelope, no new credentials needed. Confirmed by GET-probing (405/400 = route exists but wants a POST body or different method; 404 = genuinely absent — verified against both a nonsense controller and a fresh authenticated cookie so this isn't an auth artifact):
+
+| Documented endpoint | Status on `momentum.xoro.one/Xerp/...` |
+|---|---|
+| `GET tax/gettaxcodes` | ✅ **live-confirmed**, real tax-code data returned |
+| `GET account/getAccountingPeriodDetailByDate` | ✅ **live-confirmed**, real open-period data returned |
+| `POST bill/createbillpayment` | Route exists (405 on GET) — not yet POSTed |
+| `POST outgoingpayment/create` | Route exists (405 on GET) — not yet POSTed |
+| `POST invoice/createinvoicepayment` | Route exists (400 on GET) — not yet POSTed |
+| `POST deposit/create` | Route exists (400 on GET) — not yet POSTed |
+| `POST deposit/refund` | Route exists (400 on GET) — not yet POSTed |
+| `POST invoice/applycreditdeposit` | Route exists (400 on GET) — not yet POSTed |
+| `POST creditmemo/import` | Route exists (400 on GET) — not yet POSTed (see §2 above for the schema) |
+| `POST vendorcredit/import` | **Not at this name.** The real controller is `credit/*` (`credit/import`, `credit/vendorcredit`, `credit/anything` all `400` identically — looks like a generic body-validated handler, so the real action name can't be determined by GET-probing; needs a real POST to confirm shape) |
+| `POST bill/reconcileBill` | ❌ **Genuinely absent** — every casing/controller variant 404s, with and without a fresh authenticated cookie. Only reachable via `res.xorosoft.io` (i.e. blocked, see above) |
+
+**Net effect:** 8 of the 9 checked write/read endpoints from the public docs are usable today with zero new credentials via the existing `Xerp` bypass. Only `bill/reconcileBill` requires a real Private App API key against `res.xorosoft.io`.
+
+---
+
 ## The real internal API — ASP.NET `.asmx` WebMethods
 
 The Xoro UI does **not** use `/xerp/` for reconcile and most write flows. It calls **ScriptService WebMethods**:
@@ -324,7 +350,7 @@ Authenticated by the `.ASPXAUTH`-style **session cookie** — the *legitimate* a
                             GLCode, EntityAccountId, LineNumber, … } ]
   }
   ```
-  This one POST replaces the entire browser click-flow in `reconcile.py`.
+  This one POST replaces the entire browser click-flow the old `reconcile.py` used to drive.
 
 **`BankReconcileWebMethods.asmx`**
 - `getBankReconcileAccountList` (returns 13 accounts on this tenant)
@@ -422,7 +448,12 @@ Client resilience knobs (`xoro_api.py`): `path_prefix` (currently `Xerp`; flip t
 1. ~~Replace browser `upload_bank_statement.py` with a statement API~~ **Done** — `ConnectBankWebMethods.uploadBankStatementManual` via `create_bank_statement` in `xoro_webmethods.py`.
 2. Reconcile dedup/verify via GL `ReconciledFlag`.
 3. Payout ↔ invoice matching via `getinvoice` ref join.
-4. Refund → credit-memo via `creditmemo/import`.
+4. Refund → credit-memo via `creditmemo/import` (route confirmed live, §"Cross-check against the public docs site" — schema in §2 above).
+5. Customer-deposit lifecycle (`deposit/create`, `deposit/refund`, `invoice/applycreditdeposit`) — would replace manual Stripe `CA-CD###` ref matching with first-class deposit objects.
+6. AP bill payments (`bill/createbillpayment`, `outgoingpayment/create`) — would let vendor card charges (e.g. the 4009 FedEx case) post as real bill payments instead of Claude-guessed GL journal entries.
+7. AR invoice payments (`invoice/createinvoicepayment`) — direct payment application instead of journal-entry workarounds.
+8. Vendor credits — real endpoint is `credit/*`, not `vendorcredit/*` per the public docs; needs one exploratory POST to nail down the actual action name/payload shape before building on it.
+9. Live tax-code sync (`tax/gettaxcodes`) and accounting-period guardrail (`account/getAccountingPeriodDetailByDate`) — both confirmed live; the latter could preflight journal-entry/reconcile writes to avoid posting into a locked period.
 
 ---
 
@@ -436,4 +467,4 @@ Client resilience knobs (`xoro_api.py`): `path_prefix` (currently `Xerp`; flip t
 | `xoro_config.json` | Base URL / path-prefix config. |
 | `test_xoro_api.py`, `test_xoro_login.py`, `test_xoro_webmethods.py` | Tests (34 total). |
 | `upload_bank_statement.py` | Browser-driven bank-statement upload (Stage 3 — no clean API). |
-| `reconcile.py`, `reconciliation_rules.json` | Reconciliation logic / rules. |
+| `reconciliation_rules.json`, `GL_ACCOUNTS.md` | Learned payee → GL mappings / valid GL code reference, kept for a future API-driven reconcile (`reconcile.py` removed 2026-08-22 — was browser-only, no API consumers). |
