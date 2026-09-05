@@ -5,16 +5,30 @@ For a Shopify payout, matches its order numbers to Xoro undeposited payments
 bank deposit containing those payments plus a Shopify-fee cash-back line, and
 lists any unmatched orders in the deposit's memo.
 
+A payout is often built before every order has synced from Shopify into
+Xoro's Undeposited Funds — some show up hours or days later. ``retry_open_deposits``
+re-checks every short deposit (memo has ``- ERROR:``) and tops it up in place
+via ``updateBankDeposit`` as those orders arrive, instead of leaving it short
+forever. ``create_shopify_deposit`` also refuses to create a duplicate if a
+Bank Deposit for the same amount already exists near the payout date (someone
+may have already booked it manually) — pass ``check_duplicate=False`` to skip.
+
 Dry-run by default — prints the exact deposit without creating it.
 
-    python3 shopify_deposits.py 5898.38        # dry-run that payout (June)
+    python3 shopify_deposits.py                       # dry-run the most recent payout
+    python3 shopify_deposits.py 5898.38                # dry-run a specific payout by amount
+    python3 shopify_deposits.py --retry                # top up every short deposit (default store)
+    python3 shopify_deposits.py --retry service_center # same, other store
 """
 
 import json
 import os
+import re
 import urllib.request
+from datetime import datetime, timedelta
 
-from xoro_webmethods import WebMethodClient
+from xoro_api import XoroClient
+from xoro_webmethods import WebMethodClient, WebMethodError
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
@@ -38,7 +52,7 @@ STORES = {
         "accounts": {
             "USD": {
                 "deposit": {"Id": "B7D04105A81AED1CB3EA3AB9426A", "Name": "Umpqua Bank 1729 (USD)",
-                            "CurrencyId": 1001, "CurrencyName": "USD"},                              # 1140
+                            "CurrencyId": 1001, "CurrencyName": "USD", "GLCode": "1140"},
                 "fee":     {"Id": "B7D1B02C7EB5CD837D800F3B405B", "Name": "Credit Card Processing Fees (USD)",
                             "TypeId": 1034, "CurrencyId": 1001, "CurrencyName": "USD"},              # 7456
                 "fx":      {"Id": "B7E6DB72935ED49A7DA809A1468B", "Name": "Exchange Rate Gain/Loss - USD",
@@ -53,7 +67,7 @@ STORES = {
         "accounts": {
             "CAD": {
                 "deposit": {"Id": "72FF68D10C373530638D3162C4127", "Name": "BMO 41547651 (CAD)",
-                            "CurrencyId": 1, "CurrencyName": "CAD"},                                 # 1160
+                            "CurrencyId": 1, "CurrencyName": "CAD", "GLCode": "1160"},
                 "fee":     {"Id": "B7D04105A81C07FA7E88869F40C7", "Name": "Credit Card Processing Fees",
                             "TypeId": 1034, "CurrencyId": 1, "CurrencyName": "CAD"},                 # 7455
                 "fx":      {"Id": "1099", "Name": "Exchange Rate Gain/Loss",
@@ -152,11 +166,12 @@ def get_payout(amount=None, payout_id=None, date_min=None, date_max=None, store=
             continue
         amt, fee = float(t["amount"]), float(t["fee"])
         fees += fee
-        onm = onum.get(str(t.get("source_order_id"))) if t.get("source_order_id") else None
+        raw_id = t.get("source_order_id")
+        onm = onum.get(str(raw_id)) if raw_id else None
         if typ in ("charge", "refund"):
-            orders.append({"order": onm, "amount": amt, "type": typ})
+            orders.append({"order": onm, "amount": amt, "type": typ, "raw_order_id": raw_id})
         else:                        # debit / credit / adjustment / dispute ... -> adjustment
-            adjustments.append({"amount": amt, "type": typ, "order": onm})
+            adjustments.append({"amount": amt, "type": typ, "order": onm, "raw_order_id": raw_id})
     return {"id": p["id"], "date": p["date"], "amount": float(p["amount"]),
             "currency": p["currency"], "fees": round(fees, 2),
             "orders": orders, "adjustments": adjustments}
@@ -184,8 +199,9 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1", store=DEFAULT_STO
     used = set()
     matched_shopify = 0.0   # sum of Shopify amounts for the orders we actually matched
     for o in payout["orders"]:
-        if o["order"] is None:                              # payout-level txn, no order #
-            missing.append("no-order#(%s %.2f)" % (o["type"], o["amount"]))
+        if o["order"] is None:                              # order deleted from Shopify -> no order #
+            ref = "shopify_id:%s" % o["raw_order_id"] if o.get("raw_order_id") else "no-shopify-id"
+            missing.append("%s(%s %.2f)" % (ref, o["type"], o["amount"]))
             continue
         want_neg = o["amount"] < 0                          # refund -> negative Xoro row
         cands = [r for r in by_cheque.get(str(o["order"]), []) if id(r) not in used]
@@ -238,16 +254,51 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1", store=DEFAULT_STO
         "HomeCurrencyId": 1, "HomeCurrencyName": "CAD", "ExchangeRate": str(exchange_rate),
         "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
         "CashBackAccntName": "", "CashBackAmount": 0,
+        # The originating Shopify payout id -- lets retry_bank_deposit find its way
+        # back to the payout later without the caller needing to remember it.
+        "ThirdPartyRefNo": str(payout["id"]),
         # Anything unmatched (deleted/no-order charges, unfound orders, big adjustments)
         # means the deposit is short of the payout -> flag ERROR in the memo for review.
-        "Memo": "shopify consolidated" + (" - ERROR: " + " ".join(missing) if missing else ""),
+        # Comma-joined (not space) so retry_bank_deposit can parse it back out reliably --
+        # individual entries like "shopify_id:X(refund -1.23)" contain internal spaces.
+        "Memo": "shopify consolidated" + (" - ERROR: " + ",".join(missing) if missing else ""),
     }
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": matched}, matched, missing
 
 
+def _deposit_gl_code(store, currency):
+    return _store_accounts(store, currency)["deposit"].get("GLCode")
+
+
+def _check_duplicate(payout, store):
+    """Raise if a Bank Deposit for this exact payout amount already exists within
+    a few days of the payout date -- catches a payout someone already booked
+    manually (or via an earlier run) before we'd double it up. A payout's actual
+    posting date can drift a day or two from its Shopify date, hence the window.
+    """
+    gl_code = _deposit_gl_code(store, payout["currency"])
+    if not gl_code:
+        return  # no GL code configured for this account -- skip rather than block
+    pdate = datetime.strptime(payout["date"], "%Y-%m-%d")
+    start = (pdate - timedelta(days=3)).strftime("%Y-%m-%d")
+    end = (pdate + timedelta(days=3)).strftime("%Y-%m-%d")
+    rows = XoroClient().get_gl_transactions(start, end, account_gl_codes=gl_code)
+    amt = round(payout["amount"], 2)
+    hit = next((r for r in rows if r.get("TxnTypeName") == "Bank Deposit"
+                and round(float(r.get("Amount", 0)), 2) == amt), None)
+    if hit:
+        raise WebMethodError(
+            "a Bank Deposit (%s, %.2f) already exists near %s for this payout -- "
+            "refusing to create a duplicate. Pass check_duplicate=False to override."
+            % (hit.get("RefNumber"), amt, payout["date"])
+        )
+
+
 def create_shopify_deposit(amount=None, payout_id=None, date_min=None, date_max=None,
-                           client=None, dry_run=True, store=DEFAULT_STORE):
+                           client=None, dry_run=True, store=DEFAULT_STORE, check_duplicate=True):
     payout = get_payout(amount=amount, payout_id=payout_id, date_min=date_min, date_max=date_max, store=store)
+    if not dry_run and check_duplicate:
+        _check_duplicate(payout, store)
     client = client or WebMethodClient.from_config()
     cur = payout["currency"]
     undep = client.get_undeposited_transactions(CURRENCY_ID[cur])
@@ -280,10 +331,121 @@ def create_shopify_deposit(amount=None, payout_id=None, date_min=None, date_max=
     return {"created": True, "summary": summary, "deposit": client.create_bank_deposit(obj)}
 
 
+def find_open_deposits(store, days=45, client=None):
+    """Scan ``store``'s deposit account for Bank Deposits still short a payout
+    (memo contains ``- ERROR:``) within the last ``days`` days.
+
+    Returns a list of ``{bank_deposit_id, bd_number, amount, date, memo}`` --
+    feed each ``bank_deposit_id`` to ``retry_bank_deposit``.
+    """
+    cur = next(iter(STORES[store]["accounts"]))
+    gl_code = _deposit_gl_code(store, cur)
+    if not gl_code:
+        raise KeyError("no GLCode configured for store %r's deposit account" % store)
+    end = datetime.utcnow()
+    start = end - timedelta(days=days)
+    rows = XoroClient().get_gl_transactions(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
+                                            account_gl_codes=gl_code)
+    return [
+        {"bank_deposit_id": r.get("RefId"), "bd_number": r.get("RefNumber"),
+         "amount": r.get("Amount"), "date": r.get("TxnDate"), "memo": r.get("Memo")}
+        for r in rows
+        if r.get("TxnTypeName") == "Bank Deposit" and "- ERROR:" in (r.get("Memo") or "")
+    ]
+
+
+def retry_bank_deposit(bank_deposit_id, store, client=None):
+    """Re-check a short deposit's missing refs against Undeposited Funds and add
+    any that have since synced in, via ``updateBankDeposit``. No-ops (no API call)
+    if nothing new is found. Only bare order numbers are retriable -- deleted-order
+    refunds and large adjustments noted in the memo can never resolve, so they're
+    left as still_missing untouched.
+
+    Returns ``{bank_deposit_id, added, still_missing, updated, new_total?}``.
+    """
+    client = client or WebMethodClient.from_config()
+    data = client.get_bank_deposit(bank_deposit_id)
+    header = data["BankDepositHeaderObj"]
+    lines = data["BankDepositDetailArr"]
+
+    _, _, err = (header.get("Memo") or "").partition("- ERROR:")
+    all_refs = [x.strip() for x in err.split(",") if x.strip()]
+    retriable = [x for x in all_refs if re.match(r"^\d+$", x)]
+    unretriable = [x for x in all_refs if x not in retriable]
+
+    payout_id = header.get("ThirdPartyRefNo")
+    expected = {}
+    if payout_id and retriable:
+        payout = get_payout(payout_id=payout_id, store=store)
+        for o in payout["orders"]:
+            if o["order"]:
+                expected.setdefault(str(o["order"]), []).append(o["amount"])
+
+    undep = client.get_undeposited_transactions(CURRENCY_ID[header["CurrencyCode"]])
+    by_cheque = {}
+    for r in undep:
+        cn = r.get("ChequeNo")
+        if cn:
+            by_cheque.setdefault(str(cn), []).append(r)
+
+    added, still_missing = [], list(unretriable)
+    for ref in retriable:
+        cands = by_cheque.get(ref, [])
+        if not cands:
+            still_missing.append(ref)
+            continue
+        want = expected.get(ref, [None])[0]
+        best = min(cands, key=lambda r: abs(float(r["Amount"]) - want)) if want is not None else cands[0]
+        row = dict(best)
+        row["LinkedFlag"] = True
+        added.append((ref, row))
+
+    if not added:
+        return {"bank_deposit_id": bank_deposit_id, "added": [], "still_missing": still_missing, "updated": False}
+
+    for i, (ref, row) in enumerate(added, start=len(lines) + 1):
+        row["LineNumber"] = i
+        lines.append(row)
+
+    header["Memo"] = "shopify consolidated" + (" - ERROR: " + ",".join(still_missing) if still_missing else "")
+    header["TotalAmount"] = round(sum(l["Amount"] for l in lines), 2)
+
+    client.update_bank_deposit({"BankDepositHeaderObj": header, "BankDepositDetailArr": lines})
+    return {"bank_deposit_id": bank_deposit_id, "added": [r for r, _ in added],
+            "still_missing": still_missing, "updated": True, "new_total": header["TotalAmount"]}
+
+
+def retry_open_deposits(store, client=None):
+    """Sweep every open (short) deposit for ``store`` and top up what's newly available."""
+    client = client or WebMethodClient.from_config()
+    results = []
+    for o in find_open_deposits(store, client=client):
+        r = retry_bank_deposit(o["bank_deposit_id"], store, client=client)
+        r["bd_number"] = o["bd_number"]
+        results.append(r)
+    return results
+
+
 if __name__ == "__main__":
     import sys
-    amt = float(sys.argv[1]) if len(sys.argv) > 1 else 5898.38
-    r = create_shopify_deposit(amount=amt, date_min="2026-06-01", date_max="2026-06-30", dry_run=True)
+    argv = sys.argv[1:]
+
+    if argv and argv[0] == "--retry":
+        store = argv[1] if len(argv) > 1 else DEFAULT_STORE
+        print("=== RETRY: topping up open deposits for %s ===" % STORES[store]["label"])
+        results = retry_open_deposits(store)
+        if not results:
+            print("no open (short) deposits found")
+        for r in results:
+            status = ("added %s -> now %.2f" % (r["added"], r["new_total"])) if r["updated"] else "nothing new"
+            print("%s: %s%s" % (r["bd_number"], status,
+                                 (" | still missing: %s" % r["still_missing"]) if r["still_missing"] else ""))
+        raise SystemExit(0)
+
+    amt = float(argv[0]) if len(argv) > 0 and argv[0] else None
+    date_min = argv[1] if len(argv) > 1 else None
+    date_max = argv[2] if len(argv) > 2 else None
+    r = create_shopify_deposit(amount=amt, date_min=date_min, date_max=date_max, dry_run=True)
     s = r["summary"]
     p = s["payout"]
     print("=== DRY RUN: Shopify payout -> Xoro bank deposit ===")
@@ -292,5 +454,5 @@ if __name__ == "__main__":
     print("fee line:      %.2f  -> 7456 USD / 7455 CAD" % s["fee"])
     print("FX line:       %+.2f  -> 8151 USD / 8150 CAD" % s["fx_residual"])
     print("DEPOSIT TOTAL: %.2f    payout: %.2f    BALANCES: %s" % (s["deposit_total"], p["amount"], s["balances"]))
-    print("deposit to:    %s (Umpqua USD)   exchange rate: %s" % (s["deposit_to"], s["exchange_rate"]))
+    print("deposit to:    %s   exchange rate: %s" % (s["deposit_to"], s["exchange_rate"]))
     print("memo:          %s" % (s["memo"] or "(empty - nothing missing)"))

@@ -1,0 +1,1 @@
+https://ca-momentumwatch.myshopify.com/admin/oauth/authorize?client_id=09819b4c0af2023d2f2c13bbdd1b0c49&scope=read_orders,read_shopify_payments_payouts&redirect_uri=http%3A%2F%2Flocalhost%3A3456%2Fcallback&state=oRXibjrqv1IAWJsKdJzAWQ

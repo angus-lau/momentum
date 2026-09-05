@@ -34,11 +34,11 @@ python upload_bank_statement.py boa "26 01"
 python upload_bank_statement.py boa /path/to/BankStatementImport.csv
 ```
 
-## stripe_download.py
-Downloads Stripe payout transaction details.
+## Stripe Payouts/payouts.py
+Prints Stripe payouts and their underlying balance transactions (charges, refunds, fees) for any date or range. See `Stripe Payouts/README.md`.
 
 ```bash
-python stripe_download.py
+python3 "Stripe Payouts/payouts.py" [start_date] [end_date]
 ```
 
 ## Setup

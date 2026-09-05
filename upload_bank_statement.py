@@ -1,9 +1,20 @@
+"""
+Upload bank statements to Xoro and reconcile.
+Uses agent-browser (Chrome CDP) for browser automation.
+Chrome must be running with --remote-debugging-port=9222.
+
+Usage:
+  python upload_bank_statement.py --all [month]
+  python upload_bank_statement.py <bank> [csv_file | month]
+"""
+
+import base64
 import json
 import os
+import subprocess
 import sys
 from datetime import date, timedelta
 from dotenv import load_dotenv
-from playwright.sync_api import sync_playwright
 
 load_dotenv()
 
@@ -36,37 +47,100 @@ def get_month_str(month=None):
 def get_csv_path(bank: str, month: str = None):
     """Build the CSV path: base_path/YE YYYY/folder/YY MM/BankStatementImport.csv"""
     cfg = ACCOUNTS[bank]
-
     if "folder" not in cfg:
         return None
-
     month = get_month_str(month)
     year = 2000 + int(month[:2])
-
     return os.path.join(
-        CONFIG["base_path"],
-        f"YE {year}",
-        cfg["folder"],
-        month,
-        CONFIG["filename"],
+        CONFIG["base_path"], f"YE {year}", cfg["folder"], month, CONFIG["filename"]
     )
 
 
-def login(page):
-    """Navigate to Xoro and sign in."""
-    page.goto("https://momentum.xoro.one")
-    page.wait_for_load_state("networkidle")
-    page.fill("#UserName", os.getenv("XORO_USERNAME"))
-    page.fill("#Password", os.getenv("XORO_PASSWORD"))
-    page.click("#LoginButton")
-    page.wait_for_url("**/Dashboards/BusinessDashboard.aspx", timeout=30000)
-
-    # Navigate to Upload Bank Statement page
-    page.click("text=Upload Bank Statement")
-    page.wait_for_url("**/Accounting/BankStatement/UploadBankStatement.aspx")
+# --- agent-browser helpers ---
 
 
-def upload_one(page, bank: str, csv_path: str):
+def ab(*args):
+    """Run an agent-browser command and return stdout."""
+    result = subprocess.run(
+        ["agent-browser"] + list(args), capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"agent-browser {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def ab_eval(js):
+    """Run JavaScript in the browser via agent-browser eval --stdin."""
+    result = subprocess.run(
+        ["agent-browser", "eval", "--stdin"],
+        input=js, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"eval error: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def js_fill(selector, value):
+    """Fill an input field by CSS selector."""
+    value = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    ab_eval(f'''
+const el = document.querySelector("{selector}");
+el.focus();
+el.value = "";
+el.value = "{value}";
+el.dispatchEvent(new Event("input", {{bubbles: true}}));
+el.dispatchEvent(new Event("change", {{bubbles: true}}));
+''')
+
+
+def js_click(selector):
+    """Click an element by CSS selector."""
+    ab_eval(f'document.querySelector("{selector}").click()')
+
+
+def upload_file(selector, file_path):
+    """Upload a file to an input element using the DataTransfer API."""
+    with open(file_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    filename = os.path.basename(file_path)
+    ab_eval(f'''
+const b64 = "{b64}";
+const bin = atob(b64);
+const bytes = new Uint8Array(bin.length);
+for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+const file = new File([bytes], "{filename}", {{type: "text/csv"}});
+const dt = new DataTransfer();
+dt.items.add(file);
+const input = document.querySelector("{selector}");
+input.files = dt.files;
+input.dispatchEvent(new Event("change", {{bubbles: true}}));
+''')
+
+
+# --- Core workflow ---
+
+
+def ensure_on_upload_page():
+    """Navigate to Xoro Upload Bank Statement page, logging in if needed."""
+    url = ab("get", "url")
+    if "UploadBankStatement.aspx" in url:
+        return
+
+    ab("open", "https://momentum.xoro.one")
+    ab("wait", "--load", "networkidle")
+
+    url = ab("get", "url")
+    if "Login" in url or "login" in url:
+        js_fill("#UserName", os.getenv("XORO_USERNAME"))
+        js_fill("#Password", os.getenv("XORO_PASSWORD"))
+        js_click("#LoginButton")
+        ab("wait", "--url", "**/Dashboards/BusinessDashboard.aspx")
+
+    ab("find", "text", "Upload Bank Statement", "click")
+    ab("wait", "--url", "**/UploadBankStatement.aspx")
+
+
+def upload_one(bank: str, csv_path: str):
     """Upload a single bank statement (assumes already on Upload Bank Statement page)."""
     cfg = ACCOUNTS[bank]
 
@@ -76,156 +150,149 @@ def upload_one(page, bank: str, csv_path: str):
         return False
 
     # Select bank from dropdown
-    page.click("button[data-id='dd_bnkStmt_BankAccount']")
-    page.wait_for_timeout(500)
-    page.fill(".bs-searchbox input", cfg["search"])
-    page.wait_for_timeout(500)
-    page.click(f"text={cfg['option']}")
-    page.wait_for_timeout(1000)
+    js_click("button[data-id='dd_bnkStmt_BankAccount']")
+    ab("wait", "500")
+    js_fill(".bs-searchbox input", cfg["search"])
+    ab("wait", "500")
+    ab("find", "text", cfg["option"], "click")
+    ab("wait", "1000")
 
-    # Upload the CSV file
-    page.set_input_files("#bankStmtFileUpload", csv_path)
-    page.wait_for_timeout(1000)
+    # Upload CSV
+    upload_file("#bankStmtFileUpload", csv_path)
+    ab("wait", "1000")
 
     # Click Verify & Upload
-    page.click("#btn_verifyFileContents")
+    js_click("#btn_verifyFileContents")
 
     # Wait for success alert
-    page.wait_for_selector(".alert-success", timeout=30000)
-    alert_text = page.text_content(".alert-success")
+    ab("wait", ".alert-success")
+    alert_text = ab_eval('document.querySelector(".alert-success").textContent')
     print(f"  Verified: {alert_text.strip()}")
 
     # Click Upload Statement
-    page.click("#bnkStmtFileUploadBtn")
+    js_click("#bnkStmtFileUploadBtn")
 
     # Click OK on confirmation dialog
-    page.wait_for_selector(".swal2-confirm", timeout=30000)
-    page.click(".swal2-confirm")
-    page.wait_for_timeout(2000)
+    ab("wait", ".swal2-confirm")
+    js_click(".swal2-confirm")
+    ab("wait", "2000")
 
     print(f"  Upload complete.")
     return True
 
 
-def reconcile_one(page, bank: str, month: str):
-    """Reconcile a single bank account (assumes already on Bank Reconciliation Centre)."""
+def reconcile_one(bank: str, month: str):
+    """Reconcile a single bank account (assumes on Bank Reconciliation Centre)."""
     cfg = ACCOUNTS[bank]
     print(f"\n[{bank}] Reconciling...")
 
-    # Look up balance from balances.json
     balances = load_balances()
     acct_bal = balances.get(month, {}).get(bank)
     if not acct_bal or acct_bal.get("balance") is None or not acct_bal.get("date"):
         print(f"  ERROR — missing balance/date in balances.json for {bank} ({month})")
-        print(f"  Run convert_activity.py first, or add the balance manually to balances.json")
+        print(f"  Run convert_activity.py first, or add the balance manually")
         return False
 
     # Select account from dropdown
-    page.click("button[data-id='dd_BnkRecAccount']")
-    page.wait_for_timeout(500)
-    page.fill(".bs-searchbox input", cfg["search"])
-    page.wait_for_timeout(500)
-    page.click(f"text={cfg['option']}")
-    page.wait_for_timeout(1000)
+    js_click("button[data-id='dd_BnkRecAccount']")
+    ab("wait", "500")
+    js_fill(".bs-searchbox input", cfg["search"])
+    ab("wait", "500")
+    ab("find", "text", cfg["option"], "click")
+    ab("wait", "1000")
 
-    # Click Reconcile Now (opens new window)
-    with page.expect_popup() as popup_info:
-        page.click("button:has-text('Reconcile Now')")
-    reconcile_page = popup_info.value
-    reconcile_page.wait_for_load_state("networkidle")
+    # Override window.open so reconciliation opens in same tab
+    ab_eval("window.open = function(url) { window.location.href = url; };")
 
-    # Fill in ending balance
-    reconcile_page.fill("#txt_bankRec_EndBalnce", str(acct_bal["balance"]))
+    # Click Reconcile Now
+    ab("find", "text", "Reconcile Now", "click")
+    ab("wait", "--load", "networkidle")
 
-    # Fill in ending date (set via JS to avoid datepicker popup)
-    reconcile_page.evaluate(
-        "(date) => {"
-        "  const el = document.getElementById('txt_bankRec_EndDate');"
-        "  el.value = date;"
-        "  el.dispatchEvent(new Event('change', {bubbles: true}));"
-        "}",
-        acct_bal["date"],
-    )
+    # Fill ending balance
+    js_fill("#txt_bankRec_EndBalnce", str(acct_bal["balance"]))
 
-    print(f"  Filled balance: ${acct_bal['balance']:,.2f}, date: {acct_bal['date']}")
+    # Fill ending date (set via JS to avoid datepicker popup)
+    date_val = acct_bal["date"]
+    ab_eval(f'''
+const el = document.getElementById("txt_bankRec_EndDate");
+el.value = "{date_val}";
+el.dispatchEvent(new Event("change", {{bubbles: true}}));
+''')
+
+    print(f"  Filled balance: ${acct_bal['balance']:,.2f}, date: {date_val}")
 
     # Click Start Reconciling
-    reconcile_page.click("#btn_bankRec_start")
-    reconcile_page.wait_for_load_state("networkidle")
-    reconcile_page.wait_for_timeout(2000)
+    js_click("#btn_bankRec_start")
+    ab("wait", "--load", "networkidle")
+    ab("wait", "2000")
 
-    # Auto-apply matched rules: click each green checkmark button
-    total = len(reconcile_page.query_selector_all("i.fa-check-circle-o"))
+    # Auto-apply matched rules: click each green checkmark
     applied = 0
     while True:
-        check = reconcile_page.query_selector("i.fa-check-circle-o")
-        if not check:
+        has_check = ab_eval(
+            'document.querySelector("i.fa-check-circle-o") ? "yes" : "no"'
+        )
+        if has_check != "yes":
             break
-        btn = check.evaluate_handle("el => el.closest('a') || el.closest('button') || el")
-        btn.click()
-        # Wait for the row to be processed (checkmark disappears or count decreases)
-        reconcile_page.wait_for_load_state("networkidle")
-        reconcile_page.wait_for_timeout(500)
+        ab_eval('''
+const check = document.querySelector("i.fa-check-circle-o");
+const btn = check.closest("a") || check.closest("button") || check;
+btn.click();
+''')
+        ab("wait", "--load", "networkidle")
+        ab("wait", "500")
         applied += 1
 
     print(f"  [{bank}] Reconciliation started. Applied {applied} matched rules.")
+
+    # Navigate back to Bank Reconciliation Centre for next account
+    ab("open",
+       "https://momentum.xoro.one/Accounting/BankReconcile/BankReconciliationCentre.aspx")
+    ab("wait", "--load", "networkidle")
     return True
 
 
 def run(bank: str, csv_path: str, month: str = None):
     """Upload a single bank statement and reconcile."""
     month = get_month_str(month)
+    ensure_on_upload_page()
+    upload_one(bank, csv_path)
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_context().new_page()
-        login(page)
-        upload_one(page, bank, csv_path)
-
-        # Navigate to Bank Reconciliation Centre
-        page.click("#BankReconciliationCentre")
-        page.wait_for_url("**/Accounting/BankReconcile/BankReconciliationCentre.aspx")
-        reconcile_one(page, bank, month)
-
-        input("Press Enter to close the browser...")
-        browser.close()
+    # Navigate to Bank Reconciliation Centre
+    js_click("#BankReconciliationCentre")
+    ab("wait", "--url", "**/BankReconciliationCentre.aspx")
+    reconcile_one(bank, month)
 
 
 def run_all(month: str = None):
-    """Upload all configured bank statements in a single browser session."""
+    """Upload all configured bank statements in a single session."""
     month = get_month_str(month)
     print(f"Uploading all accounts for {month}...")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_context().new_page()
-        login(page)
+    ensure_on_upload_page()
 
-        success = 0
-        skipped = 0
-        for bank, cfg in ACCOUNTS.items():
-            if "folder" not in cfg or cfg.get("skip"):
-                continue
-            csv_path = get_csv_path(bank, month)
-            if upload_one(page, bank, csv_path):
-                success += 1
-            else:
-                skipped += 1
+    success = 0
+    skipped = 0
+    for bank, cfg in ACCOUNTS.items():
+        if "folder" not in cfg or cfg.get("skip"):
+            continue
+        csv_path = get_csv_path(bank, month)
+        if upload_one(bank, csv_path):
+            success += 1
+        else:
+            skipped += 1
 
-        print(f"\nDone: {success} uploaded, {skipped} skipped")
+    print(f"\nDone: {success} uploaded, {skipped} skipped")
 
-        # Navigate to Bank Reconciliation Centre
-        page.click("#BankReconciliationCentre")
-        page.wait_for_url("**/Accounting/BankReconcile/BankReconciliationCentre.aspx")
-        print("\nReconciling accounts...")
+    # Navigate to Bank Reconciliation Centre
+    js_click("#BankReconciliationCentre")
+    ab("wait", "--url", "**/BankReconciliationCentre.aspx")
+    print("\nReconciling accounts...")
 
-        for bank, cfg in ACCOUNTS.items():
-            if "folder" not in cfg or cfg.get("skip"):
-                continue
-            reconcile_one(page, bank, month)
-
-        input("Press Enter to close the browser...")
-        browser.close()
+    for bank, cfg in ACCOUNTS.items():
+        if "folder" not in cfg or cfg.get("skip"):
+            continue
+        reconcile_one(bank, month)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,44 @@ def build_chart_of_accounts(gl_rows):
     return coa
 
 
+# Bank statement import formats (BankStatementHeader.ImportTypeId).
+IMPORT_TYPE_CSV = 10
+IMPORT_TYPE_OFX = 20
+IMPORT_TYPE_QIF = 30
+IMPORT_TYPE_AUTO = 999
+
+
+def build_statement(accnt_id, lines, start_date, end_date, end_balance,
+                    import_type_id=IMPORT_TYPE_CSV):
+    """Build the (header, line_arr) for a bank-statement createstatement call.
+
+    ``lines`` items are friendly dicts: ``date``, ``amount``, ``type``
+    (``debit``/``credit``), ``description``, and optional ``payee``,
+    ``reference``, ``cheque``. The account id is injected into every line and
+    ``EndBalance`` is formatted as a 2-decimal money string, as the API expects.
+    """
+    header = {
+        "ImportTypeId": import_type_id,
+        "StartDate": start_date,
+        "EndDate": end_date,
+        "EndBalance": "%.2f" % float(end_balance),
+    }
+    line_arr = []
+    for ln in lines:
+        line_arr.append({
+            "AccntId": accnt_id,
+            "DeleteFlag": False,
+            "Amount": ln["amount"],
+            "TypeName": ln["type"],
+            "Date": ln["date"],
+            "Description": ln.get("description", ""),
+            "Payee": ln.get("payee", ""),
+            "ChequeNumber": ln.get("cheque", ""),
+            "ReferenceNumber": ln.get("reference", ""),
+        })
+    return header, line_arr
+
+
 class XoroAPIError(Exception):
     """Raised when the API returns a non-success envelope or HTTP error."""
 

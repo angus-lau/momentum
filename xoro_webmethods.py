@@ -399,3 +399,33 @@ class WebMethodClient:
     def void_bank_deposit(self, bank_deposit_id):
         """Void/delete a bank deposit (returns its payments to undeposited funds)."""
         return self.call(BANK_DEPOSIT_SERVICE, "voidBankDeposit", bankDepositId=bank_deposit_id)
+
+    def get_bank_deposit(self, bank_deposit_id):
+        """Fetch a bank deposit's current full object (header + detail lines) by its numeric Id.
+
+        Returns ``{BankDepositHeaderObj, BankDepositDetailArr}``, the same shape
+        ``create_bank_deposit``/``update_bank_deposit`` expect back.
+        """
+        d = self.call(BANK_DEPOSIT_SERVICE, "getBankDepositObjInfoFromId", bnkDepId=bank_deposit_id)
+        return (d or {}).get("Data") if isinstance(d, dict) else d
+
+    def update_bank_deposit(self, deposit_obj):
+        """Update an existing bank deposit in place (add/modify lines, adjust totals/memo).
+
+        ``deposit_obj`` = ``{BankDepositHeaderObj, BankDepositDetailArr}`` with the
+        header's ``Id`` set to the deposit being edited (get one via
+        ``get_bank_deposit``). Same double-encoded POST shape as
+        ``create_bank_deposit``. Verified live 2026-08-24: used to add
+        newly-synced order lines to deposits that were originally created short.
+        """
+        env = self.call(
+            BANK_DEPOSIT_SERVICE, "updateBankDeposit",
+            bankDepositObjJson=json.dumps(deposit_obj),
+        )
+        if not isinstance(env, dict) or not env.get("Result"):
+            msg = env.get("Message") if isinstance(env, dict) else env
+            raise WebMethodError("updateBankDeposit failed: %s" % msg)
+        data = env.get("Data", env)
+        if isinstance(data, dict) and isinstance(data.get("BankDepositHeaderObj"), dict):
+            return data["BankDepositHeaderObj"]
+        return data

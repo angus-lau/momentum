@@ -10,7 +10,12 @@ import json
 import os
 import unittest
 
-from xoro_api import XoroClient, XoroAPIError, build_chart_of_accounts
+from xoro_api import (
+    XoroClient,
+    XoroAPIError,
+    build_chart_of_accounts,
+    build_statement,
+)
 
 
 def envelope(data, *, result=True, error_code=0, message="ok", page=1, total_pages=1):
@@ -217,6 +222,63 @@ class EndpointMethodTest(unittest.TestCase):
         self.assertEqual(call["method"], "POST")
         self.assertIn("/Xerp/creditmemo/import", call["url"])
         self.assertEqual(json.loads(call["body"]), payload)
+
+
+class BuildStatementTest(unittest.TestCase):
+    def sample(self):
+        return build_statement(
+            accnt_id="B7D13857A3B002A21018E0D6467D",
+            lines=[
+                {
+                    "date": "06/06/2026",
+                    "amount": 152.30,
+                    "type": "debit",
+                    "description": "UBER EATS",
+                    "payee": "Uber",
+                    "reference": "R1",
+                }
+            ],
+            start_date="06/01/2026",
+            end_date="06/30/2026",
+            end_balance=45000.0,
+        )
+
+    def test_header_has_dates_balance_and_import_type(self):
+        header, _ = self.sample()
+        self.assertEqual(header["ImportTypeId"], 10)  # CSV default
+        self.assertEqual(header["StartDate"], "06/01/2026")
+        self.assertEqual(header["EndDate"], "06/30/2026")
+        self.assertEqual(header["EndBalance"], "45000.00")  # money, 2dp, string
+
+    def test_line_injects_accnt_id_and_maps_fields(self):
+        _, lines = self.sample()
+        line = lines[0]
+        self.assertEqual(line["AccntId"], "B7D13857A3B002A21018E0D6467D")
+        self.assertEqual(line["Amount"], 152.30)
+        self.assertEqual(line["TypeName"], "debit")
+        self.assertEqual(line["Date"], "06/06/2026")
+        self.assertEqual(line["Description"], "UBER EATS")
+        self.assertEqual(line["Payee"], "Uber")
+        self.assertEqual(line["ReferenceNumber"], "R1")
+        self.assertIs(line["DeleteFlag"], False)
+
+    def test_optional_fields_default_blank(self):
+        _, lines = build_statement(
+            accnt_id="X",
+            lines=[{"date": "06/06/2026", "amount": 10, "type": "credit", "description": "d"}],
+            start_date="06/01/2026",
+            end_date="06/30/2026",
+            end_balance=0,
+        )
+        self.assertEqual(lines[0]["Payee"], "")
+        self.assertEqual(lines[0]["ReferenceNumber"], "")
+
+    def test_import_type_overridable(self):
+        header, _ = build_statement(
+            accnt_id="X", lines=[], start_date="06/01/2026",
+            end_date="06/30/2026", end_balance=0, import_type_id=999,
+        )
+        self.assertEqual(header["ImportTypeId"], 999)
 
 
 class FromConfigTest(unittest.TestCase):

@@ -359,6 +359,14 @@ Authenticated by the `.ASPXAUTH`-style **session cookie** — the *legitimate* a
 - `getLastReconcileHeaderDetailsFromAccountId`, `getReconcileStatsFromBankRecId`, `updateBankRecEndingBalAndDate`
 - Native rules engine: `createBankRecRuleObj`, `UpdateBankRecRule`, `voidReconcileRule` → `reconciliation_rules.json` could become native Xoro rules.
 
+**`BankDepositWebMethods.asmx`** — the Shopify/Afterpay deposit-builder workhorse (`shopify_deposits.py`).
+- `getBankDepositLinkedUndepositedTransactions(currencyId, size, number, searchExp, sorder, sname)` — undeposited payment rows, matched by `ChequeNo` == the source order number.
+- `createBankDeposit(bankDepositObjJson)` — the write. Same double-encoded-JSON-string convention as everything else on this service.
+- `getBankDepositObjInfoFromId(bnkDepId)` — fetch a deposit's full current object (header + every detail line) by its **numeric** id (the GL row's `RefId`, not the `BD0xxxxx` display number).
+- **`updateBankDeposit(bankDepositObjJson)`** — discovered + proven live 2026-08-24. Same shape as `createBankDeposit` but edits an existing deposit **in place**: fetch via `getBankDepositObjInfoFromId`, append/modify `BankDepositDetailArr` lines, adjust `TotalAmount`/`Memo`, POST back. Used to top up a deposit that was built before all its orders had synced from Shopify into Undeposited Funds — no need to void+recreate. Wrapped as `WebMethodClient.update_bank_deposit()` / `get_bank_deposit()`, driven by `shopify_deposits.retry_bank_deposit()` / `retry_open_deposits()` (`python3 shopify_deposits.py --retry [store]`).
+- `voidBankDeposit(bankDepositId)` — "Bank deposit deleted successfully" (numeric id, not the `BD0xxxxx` display number); returns payments to undeposited funds.
+- `getDataForBankDeposit`, `getBankDepositStatusTypes`, `getBankDepositSearchComponents` — supporting lookups (home-currency/exchange-rate, status enum, search field metadata).
+
 **`BillWebMethods.asmx`** — `createNewBill`, `createNewItemReceipt`, `createBillFromItemReceiptLines`, `updateBill` (4009 FedEx case).
 
 **`CreditMemoWebMethods.asmx`** — `createCreditMemo`, `createCreditMemoFromInvoice` (refunds).
@@ -467,4 +475,5 @@ Client resilience knobs (`xoro_api.py`): `path_prefix` (currently `Xerp`; flip t
 | `xoro_config.json` | Base URL / path-prefix config. |
 | `test_xoro_api.py`, `test_xoro_login.py`, `test_xoro_webmethods.py` | Tests (34 total). |
 | `upload_bank_statement.py` | Browser-driven bank-statement upload (Stage 3 — no clean API). |
+| `shopify_deposits.py` | Shopify payout → Xoro bank deposit, via `BankDepositWebMethods` (create/retry/dup-check). See `AUTOMATIONS.md`. |
 | `reconciliation_rules.json`, `GL_ACCOUNTS.md` | Learned payee → GL mappings / valid GL code reference, kept for a future API-driven reconcile (`reconcile.py` removed 2026-08-22 — was browser-only, no API consumers). |

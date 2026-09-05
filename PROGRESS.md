@@ -10,7 +10,7 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 | 2 | Convert activity files to Xero import format | `convert_activity.py --all` | Done |
 | 3 | Upload bank statements to Xoro | `upload_bank_statement.py --all` | Done |
 | 4 | Reconcile accounts in Xoro | — | Not started (API-driven) |
-| 5 | Download Stripe payout details | `stripe_download.py` | Done |
+| 5 | Download Stripe payout details | `Stripe Payouts/payouts.py` | Done |
 
 ## Detailed Status
 
@@ -34,8 +34,8 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 - `reconciliation_rules.json` (learned payee → GL code mappings) and `GL_ACCOUNTS.md` (valid GL code reference) were kept — reusable by a future API-driven rebuild.
 - Blocker before rebuilding: capture a real `saveJournalEntry` POST from an actual UI reconcile to confirm which field links the JE back to the specific bank-statement row (see `XORO_API.md` → "The real internal API").
 
-### Stripe Download (`stripe_download.py`) — Done
-- Downloads Stripe payout transaction details
+### Stripe Download (`Stripe Payouts/payouts.py`) — Done
+- Prints Stripe payouts + underlying balance transactions (charges, refunds, fees) for any date/range; terminal-only, no Xoro write-side yet. Superseded the root `stripe_download.py`, removed 2026-08-22 (no code depended on it).
 
 ## Browser Automation Setup
 
