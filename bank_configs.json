@@ -40,10 +40,9 @@
     "date_pattern": "Closing Date\\s*(\\d{2}/\\d{2}/\\d{2,4})"
   },
   "amex_sofia": {
-    "skip_rows": 12,
     "has_header": true,
     "date_col": 0,
-    "desc_col": 1,
+    "desc_col": 2,
     "amount_type": "single",
     "amount_col": 3,
     "negate": true,

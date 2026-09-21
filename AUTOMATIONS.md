@@ -48,16 +48,18 @@ Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceri
   - July 2026 pay period #2 (`20260731.pdf`) — Bill `CA-B002005` created, 12 expense lines (7660, 7840 = STD+LTD combined, 2900 = SP.DEDNS, 9× dept lines), Balance Due $63,340.66, exact match to the PDF's Total Payment Due. First period to surface STD and SP.DEDNS as line types.
 - **TODO:** switch from browser-driven to `createNewBill` API call directly now that the payload shape is confirmed; generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` source file was found to be a byte-identical duplicate of `20260731.pdf` and needs to be re-saved by the user with the real August 15 data before that period's bill can be built.
 
-## ✅ CC 4002 DHL Reconcile
+## ✅ CC 4002 DHL Reconcile (MyBill fetch → parse → two Xoro statements)
 
-Parses DHL invoice PDFs for the Amex Sofia 4002 card and produces the monthly `DHL Reconcile.xlsx` plus a `dhl_bank_statement.csv` for Xoro import.
+Amex Sofia 4002 is the DHL card: each DHL charge is a whole invoice whose shipments split across EU VAT / UK VAT / Duties & Brokerage / Customer Delivery Fees / GST / Freight. So the month is booked in two passes.
 
-- **Folder:** `Projects/momentum/4002 DHL reconcile/`
-- **Run:** `./run.sh "26 05"` (or any month folder name) — or pass a full path
-- **Handles three DHL PDF formats:** YVRIR (Inbound = outbound D&T), YVRR (Outbound = Express Worldwide Nondoc), E10 (Customs Duty Invoice imports to Canada)
-- **Routes per-shipment by destination country:** EU VAT, UK VAT, Duties & Brokerage, Customer Delivery Fees, GST, Freight Amounts
-- **Outputs:** updates `DHL Reconcile.xlsx` (backs up the existing file first), plus matching CSVs
-- **Verified:** April 2026, 24 invoices, $4,956.08 grand total reconciles to the penny
+- **Folder:** `Projects/momentum/4002 DHL reconcile/`; month folder `.../Amex Sofia 4002/<YY MM>/` holds `activity.csv` + the Amex statement `YYYY-MM-DD.pdf`
+- **Pass 1 — non-DHL lines:** `convert_activity.py amex_sofia "<YY MM>"` (`dhl_filter` holds the DHL charges back and writes them into `DHL Reconcile.xlsx` col A). Upload those lines via `create_bank_statement` with an **interim** `EndBalance` = PDF balance − DHL total, then `start_reconciliation` at the **true** PDF balance. The open rec shows a difference equal to the DHL total until pass 2.
+- **Pass 2 — DHL invoices:**
+  1. `python3 mybill_fetch.py "<month folder>"` — pulls every matching invoice PDF from MyBill (mybill.dhl.com has no billing API; this drives the logged-in chrome-debug Chrome over CDP, IPv4 or IPv6 on 9222). Matches each Amex DHL charge to an invoice by **amount + date** (charge date within −3…+7 days of the invoice due date); stops before downloading if anything is unmatched/ambiguous. Saves as `<amount> <invoice#>.pdf`.
+  2. `./run.sh "<YY MM>"` — parses the three DHL PDF formats (YVRIR / YVRR / E10), writes `DHL Reconcile.xlsx` + `dhl_bank_statement.csv` (4 GL-summary lines dated the statement closing date). Every invoice must allocate to its total (`dhl_review.csv` otherwise).
+  3. Upload the 4 summary lines via `create_bank_statement` with `EndBalance` = PDF balance → the rec's difference closes.
+- **Verified:** Aug 2026 (statement 09/10/2026) — 31 DHL charges, 31/31 matched to MyBill invoices uniquely by amount and every one charged on its due date (or +1); 31 PDFs downloaded in ~1 min; parsed total $10,457.37 = the exact gap on rec 979; two statements posted (25 + 4 lines) ending at −15,853.54.
+- **Gotchas found:** Amex changed the 4002 export layout (header on line 1, description col 2 — `bank_configs.json` updated 2026-09-21); E10 charge lines over $1,000 carry a thousands comma the parser used to skip (fixed — it had silently dropped a $1,483.60 GST line).
 - **See:** [`4002 DHL reconcile/README.md`](4002%20DHL%20reconcile/README.md)
 
 ## ✅ Stripe Payouts

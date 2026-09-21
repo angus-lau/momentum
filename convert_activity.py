@@ -231,16 +231,11 @@ def write_dhl_reconcile(dhl_amounts, reconcile_path):
     print(f"  Wrote {len(dhl_amounts)} DHL amounts → {reconcile_path}")
 
 
-def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
-    """Parse a raw activity file into statement line dicts, sign applied per config.
+def _parsed_rows(bank_config_key, input_path):
+    """Yield ``(date_str, description, amount)`` per activity row, sign applied per config.
 
-    Returns ``(lines, dhl_amounts)``. Each line is a dict: ``date`` (raw source
-    string), ``amount`` (float, sign already resolved via the bank's ``negate`` /
-    split-column rule), ``payee``, ``description``, ``reference``, ``cheque``.
-
-    This is the in-memory core shared by ``convert`` (which writes the import CSV)
-    and the API upload pipeline (``statement_pipeline.upload_statement``) — so the
-    sign convention lives in exactly one place.
+    The one place the per-bank column layout and sign convention are interpreted;
+    ``convert_to_lines`` and ``dhl_charges`` both build on it.
     """
     cfg = BANK_CONFIGS[bank_config_key]
 
@@ -249,9 +244,6 @@ def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
         raw_rows = read_rows_excel(input_path, cfg)
     else:
         raw_rows = read_rows_csv(input_path, cfg)
-
-    lines = []
-    dhl_amounts = []
 
     for row in raw_rows:
         if not row or not row[0].strip():
@@ -277,8 +269,30 @@ def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
             if cfg.get("negate"):
                 amount = -amount
 
+        yield date_val, desc, amount
+
+
+def _is_dhl(desc):
+    return "DHL" in desc.upper()
+
+
+def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
+    """Parse a raw activity file into statement line dicts, sign applied per config.
+
+    Returns ``(lines, dhl_amounts)``. Each line is a dict: ``date`` (raw source
+    string), ``amount`` (float, sign already resolved via the bank's ``negate`` /
+    split-column rule), ``payee``, ``description``, ``reference``, ``cheque``.
+
+    This is the in-memory core shared by ``convert`` (which writes the import CSV)
+    and the API upload pipeline (``statement_pipeline.upload_statement``) — so the
+    sign convention lives in exactly one place.
+    """
+    lines = []
+    dhl_amounts = []
+
+    for date_val, desc, amount in _parsed_rows(bank_config_key, input_path):
         # DHL filtering: separate DHL transactions
-        if dhl_filter and "DHL" in desc.upper():
+        if dhl_filter and _is_dhl(desc):
             dhl_amounts.append(amount * -1)
             continue
 
@@ -289,6 +303,18 @@ def convert_to_lines(bank_config_key, input_path, dhl_filter=False):
         })
 
     return lines, dhl_amounts
+
+
+def dhl_charges(bank_config_key, input_path):
+    """The DHL card charges as ``[(date_str, positive_amount), ...]``.
+
+    Same rows ``convert_to_lines(..., dhl_filter=True)`` holds back, but with the
+    charge date kept — ``4002 DHL reconcile/mybill_fetch.py`` needs both to match
+    each charge to its MyBill invoice.
+    """
+    return [(date_val, amount * -1)
+            for date_val, desc, amount in _parsed_rows(bank_config_key, input_path)
+            if _is_dhl(desc)]
 
 
 def convert(bank_config_key, input_path, output_path, dhl_filter=False):

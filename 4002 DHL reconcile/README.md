@@ -4,13 +4,34 @@ Parses DHL invoice PDFs for the **Amex Sofia 4002** card into the monthly `DHL R
 
 ## Run it
 
+Month folder = `.../Amex Sofia 4002/<YY MM>/`, holding the Amex export as `activity.csv`
+and the Amex statement as `YYYY-MM-DD.pdf` (its closing date).
+
 ```sh
-python3 dhl_reconcile.py "/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/Accounting Docs/CC Expenses/YE 2026/Amex Sofia 4002/26 05"
+# 1. pull the month's DHL invoice PDFs from MyBill (needs the chrome-debug Chrome logged in to mybill.dhl.com)
+python3 mybill_fetch.py ".../Amex Sofia 4002/26 08" --dry-run   # show the charge ↔ invoice matches
+python3 mybill_fetch.py ".../Amex Sofia 4002/26 08"             # download them as "<amount> <invoice#>.pdf"
+
+# 2. parse + allocate
+./run.sh "26 08"          # = python3 dhl_reconcile.py ".../Amex Sofia 4002/26 08"
 ```
 
-Replace `26 05` with whatever the current month folder is named.
+`mybill_fetch.py` reads every DHL charge off `activity.csv` and matches each to a MyBill
+invoice by **amount and date** (charge date within −3…+7 days of the invoice's due date —
+DHL autopay hits the card on the due date). Any charge that matches zero or more than one
+invoice stops the run before anything is downloaded. Already-present PDFs are skipped.
+It drives the logged-in Chrome over CDP on port 9222 (IPv4 or IPv6, whichever the debug
+Chrome got) — MyBill has no billing API.
 
-The script auto-discovers all `*.pdf` files in that folder.
+`dhl_reconcile.py` auto-discovers all `*.pdf` in the folder, skipping the `YYYY-MM-DD.pdf`
+Amex statement — whose date it uses for the `dhl_bank_statement.csv` lines, so they fall
+inside that month's Xoro reconciliation.
+
+### Xoro
+
+The month is booked as two bank statements on 2106 (see `../AUTOMATIONS.md`):
+the non-DHL lines first (interim `EndBalance` = PDF balance − DHL total, rec opened at the
+true PDF balance), then the 4 `dhl_bank_statement.csv` lines with `EndBalance` = PDF balance.
 
 ## What it writes (in the same folder as the PDFs)
 
@@ -26,6 +47,8 @@ The script auto-discovers all `*.pdf` files in that folder.
 ```sh
 python3 -m pip install --user -r requirements.txt
 ```
+
+Then run `mybill_fetch.py` once per month with the debug Chrome open and logged in.
 
 Only needed once per machine.
 

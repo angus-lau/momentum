@@ -26,6 +26,9 @@ from openpyxl.styles import Font, PatternFill, Alignment
 
 # ---------- Configuration ----------
 
+# The Amex statement PDF saved alongside the invoices, named by its closing date.
+STATEMENT_PDF_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.pdf$")
+
 EU_COUNTRIES = {
     "AT","BE","BG","HR","CY","CZ","DK","EE","FI","FR","DE","GR","HU","IE","IT",
     "LV","LT","LU","MT","NL","PL","PT","RO","SK","SI","ES","SE",
@@ -192,8 +195,9 @@ def parse_e10(full_text):
     inv["awb"] = m.group(1) if m else ""
 
     # Walk lines, track section
+    # amounts can carry thousands separators ("1,483.60"); money() strips them
     line_re = re.compile(
-        r"^(.+?)\s+(\d+\.\d{2})\s+([A-Za-z/]+)\s+(\d+\.\d{2})\s+(\d+\.\d{2})\s*$"
+        r"^(.+?)\s+([\d,]+\.\d{2})\s+([A-Za-z/]+)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s*$"
     )
     charges = {"regulatory": [], "dhl": []}
     section = None
@@ -281,7 +285,17 @@ def main(folder):
     if not folder.is_dir():
         print(f"Not a folder: {folder}", file=sys.stderr); sys.exit(2)
 
-    pdfs = sorted(folder.glob("*.pdf"))
+    # The Amex statement itself lives in the same folder as "YYYY-MM-DD.pdf" (its
+    # closing date). It's not a DHL invoice — but its date is what the bank-statement
+    # lines should carry, so they land inside the month's Xoro reconciliation.
+    stmt_date = None
+    pdfs = []
+    for pdf_path in sorted(folder.glob("*.pdf")):
+        m = STATEMENT_PDF_RE.match(pdf_path.name)
+        if m:
+            stmt_date = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        else:
+            pdfs.append(pdf_path)
     if not pdfs:
         print(f"No PDFs found in {folder}", file=sys.stderr); sys.exit(2)
 
@@ -432,7 +446,10 @@ def main(folder):
 
     # Bank statement CSV (matches DHLBankStatementImport.csv format)
     out_bank = folder / "dhl_bank_statement.csv"
-    today = date.today().strftime("%-m/%-d/%y") if sys.platform != "win32" else date.today().strftime("%#m/%#d/%y")
+    line_date = stmt_date or date.today()
+    if stmt_date is None:
+        print("  ⚠️  no YYYY-MM-DD.pdf statement in folder — bank lines dated today", file=sys.stderr)
+    today = line_date.strftime("%-m/%-d/%y") if sys.platform != "win32" else line_date.strftime("%#m/%#d/%y")
     tax_total = (category_totals.get("GST", 0)
                  + category_totals.get("EU VAT", 0)
                  + category_totals.get("UK VAT", 0))
@@ -449,8 +466,10 @@ def main(folder):
             if amt > 0.005:
                 w.writerow([today, f"{-round2(amt):.2f}", "DHL", desc, "", ""])
 
-    # Review CSV (only if anything to flag)
+    # Review CSV (only if anything to flag; a stale one from a previous run is removed)
     out_review = None
+    if not reviews and (folder / "dhl_review.csv").exists():
+        (folder / "dhl_review.csv").unlink()
     if reviews:
         out_review = folder / "dhl_review.csv"
         with open(out_review, "w", newline="") as f:
