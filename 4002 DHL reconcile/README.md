@@ -14,6 +14,9 @@ python3 mybill_fetch.py ".../Amex Sofia 4002/26 08"             # download them 
 
 # 2. parse + allocate
 ./run.sh "26 08"          # = python3 dhl_reconcile.py ".../Amex Sofia 4002/26 08"
+
+# 3. the GST / EU VAT / UK VAT bill (dry-run, then asks before posting)
+./run.sh "26 08" --bill   # = python3 dhl_bill.py ".../26 08" [--create]
 ```
 
 `mybill_fetch.py` reads every DHL charge off `activity.csv` and matches each to a MyBill
@@ -26,6 +29,12 @@ Chrome got) — MyBill has no billing API.
 `dhl_reconcile.py` auto-discovers all `*.pdf` in the folder, skipping the `YYYY-MM-DD.pdf`
 Amex statement — whose date it uses for the `dhl_bank_statement.csv` lines, so they fall
 inside that month's Xoro reconciliation.
+
+`dhl_bill.py` reads the TOTAL row of `dhl_reconcile_lines.csv` and creates one Vendor Bill on
+DHL Express Canada dated the statement closing date: expense lines **2251 - VAT NL - Paid** (EU VAT)
+and **2245 - VAT UK - Paid** (UK VAT), plus a **tax adjustment** `GST Purchase 5%` for the GST — so
+the bill equals the "GST, EU, UK VAT" statement line. It refuses if a DHL bill for that date and
+total is already in the GL. Paying the bill from 2106 is still done in the Xoro UI.
 
 ### Xoro
 

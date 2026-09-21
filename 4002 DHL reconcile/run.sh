@@ -1,7 +1,8 @@
 #!/bin/bash
 # Convenience wrapper. Usage:
 #   ./run.sh                     # uses default base path, prompts for month folder
-#   ./run.sh "26 05"             # processes <base>/26 05/
+#   ./run.sh "26 08"             # parse the month's DHL invoices (YE folder derived from the month)
+#   ./run.sh "26 08" --bill      # ...then show the GST/EU/UK VAT bill and offer to post it
 #   ./run.sh /full/path/to/dir   # processes whatever folder you point it at
 
 set -euo pipefail
@@ -14,6 +15,12 @@ ye_for_month() {
   local yy="${1%% *}" mm="${1##* }"
   if [ "$((10#$mm))" -gt 7 ]; then echo "$((2000 + 10#$yy + 1))"; else echo "$((2000 + 10#$yy))"; fi
 }
+
+BILL=0; ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--bill" ]; then BILL=1; else ARGS+=("$a"); fi
+done
+set -- ${ARGS[@]+"${ARGS[@]}"}   # positional args minus the flag (bash 3.2-safe when empty)
 
 if [ $# -eq 0 ]; then
   echo "Available month folders:"
@@ -33,3 +40,18 @@ if [ ! -d "$TARGET" ]; then
 fi
 
 python3 "$SCRIPT_DIR/dhl_reconcile.py" "$TARGET"
+
+if [ "$BILL" = "1" ]; then
+  echo
+  rc=0; python3 "$SCRIPT_DIR/dhl_bill.py" "$TARGET" || rc=$?
+  if [ "$rc" = "0" ]; then
+    echo
+    read -p "Post this bill to Xoro? [y/N] " yn
+    case "$yn" in
+      [Yy]*) python3 "$SCRIPT_DIR/dhl_bill.py" "$TARGET" --create ;;
+      *) echo "Not posted." ;;
+    esac
+  elif [ "$rc" != "3" ]; then
+    exit "$rc"
+  fi
+fi
