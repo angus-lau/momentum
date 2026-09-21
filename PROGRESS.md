@@ -11,7 +11,7 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 | 3 | Upload bank statements to Xoro | `upload_bank_statement.py --all` | Done |
 | 4 | Open reconciliation in Xoro (rec header + ending balance) | `xoro_webmethods.WebMethodClient.start_reconciliation` | Done |
 | 5 | Match lines / GL-code in Xoro rec screen | Manual | Manual by design |
-| 6 | Download Stripe payout details | `Stripe Payouts/payouts.py` | Done |
+| 6 | Stripe payouts → Xoro bank deposits | `stripe_deposits.py` | Done |
 
 ## Detailed Status
 
@@ -36,8 +36,8 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 - If this ever gets painful, the next increment is "auto-match the obvious lines, hand back a short list needing a decision" — not full automation. `JournalEntryWebMethods.saveJournalEntry` is confirmed working (see `XORO_API.md`); the open question for a rebuild is which field links a JE back to its bank-statement row — capture a live UI reconcile before guessing.
 - `reconciliation_rules.json` (learned payee → GL code mappings) and `GL_ACCOUNTS.md` (valid GL code reference) are kept for that. The old browser-driven `reconcile.py` was removed 2026-08-22.
 
-### Stripe Download (`Stripe Payouts/payouts.py`) — Done
-- Prints Stripe payouts + underlying balance transactions (charges, refunds, fees) for any date/range; terminal-only, no Xoro write-side yet. Superseded the root `stripe_download.py`, removed 2026-08-22 (no code depended on it).
+### Stripe Deposits (`stripe_deposits.py`) — Done
+- Matches each payout's charges to Xoro undeposited Customer Deposits by `LineRefNo` and books the bank deposit (CAD → 1160, USD → 1170, fees 7455/7456) with a duplicate guard. Live since 2026-09-21. `Stripe Payouts/payouts.py` remains as a read-only listing.
 
 ## Browser Automation Setup
 

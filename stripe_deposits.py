@@ -12,14 +12,6 @@ CA-CD037662, CA-CD037461) matched exactly against undeposited CAD rows'
 ``LineRefNo``, amounts equal to the gross charge amount, ``TxnTypeName``
 "Customer Deposit".
 
-ACCOUNTS below is STUBBED — the deposit-to bank account and fee/FX GL
-accounts are placeholders. Dry-run works today (shows the shape of what
-would be created); a live (non-dry-run) create raises until the real
-FAccountingIds are filled in. Find them via
-``xoro_webmethods.WebMethodClient.get_bank_statement_accounts()`` for the
-bank account, and ``AccountingWebMethods.getAllAccountsForApi`` (or the GL
-rows) for the fee/FX GL codes — see ``XORO_API.md``.
-
 Dry-run by default — prints the exact deposit without creating it.
 
     python3 stripe_deposits.py                          # most recent payout
@@ -33,9 +25,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from xoro_webmethods import WebMethodClient
+from xoro_api import XoroClient
+from xoro_webmethods import WebMethodClient, WebMethodError
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
@@ -43,20 +36,28 @@ ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
 CURRENCY_ID = {"CAD": 1, "USD": 1001}
 ADJ_STORE_ID = 10001
 
-# ---- Deposit/fee/FX accounts — STUBBED, fill in before a live create ------
-# Shape matches shopify_deposits.py's STORES[...]["accounts"][currency]: each
-# entry needs {Id, Name, CurrencyId, CurrencyName} (fee/fx also want TypeId,
-# e.g. 1034 for a CC-processing-fee account, 1016 for Exchange Rate Gain/Loss)
-# so the deposit line renders with a *named* account in Xoro (an id-only line
-# renders blank).
+# ---- Deposit/fee/FX accounts per payout currency ---------------------------
+# Same shape as shopify_deposits.py's STORES[...]["accounts"][currency]. Stripe
+# pays CAD to BMO ...7651 (1160) and USD to BMO ...9097 (1170) — confirmed from
+# Stripe's external_accounts and from the manually-booked Aug 2026 deposits
+# (memo "stripe cad": 1160 <- 1210 Undeposited Funds, fee to 7455). Ids from
+# AccountingWebMethods.getAllAccountsForApi / get_bank_statement_accounts.
 ACCOUNTS = {
     "CAD": {
-        "deposit": {"Id": "STUB_DEPOSIT_ACCOUNT_ID", "Name": "STUB — Stripe CAD deposit-to bank account",
-                    "CurrencyId": 1, "CurrencyName": "CAD"},
-        "fee":     {"Id": "STUB_FEE_ACCOUNT_ID", "Name": "STUB — Stripe CAD processing fees",
-                    "TypeId": 1034, "CurrencyId": 1, "CurrencyName": "CAD"},
-        "fx":      {"Id": "STUB_FX_ACCOUNT_ID", "Name": "STUB — Exchange Rate Gain/Loss (CAD)",
-                    "TypeId": 1016, "CurrencyId": 1, "CurrencyName": "CAD"},
+        "deposit": {"Id": "72FF68D10C373530638D3162C4127", "Name": "BMO 41547651 (CAD)",
+                    "CurrencyId": 1, "CurrencyName": "CAD", "GLCode": "1160"},
+        "fee":     {"Id": "B7D04105A81C07FA7E88869F40C7", "Name": "Credit Card Processing Fees",
+                    "TypeId": 1034, "CurrencyId": 1, "CurrencyName": "CAD"},                 # 7455
+        "fx":      {"Id": "1099", "Name": "Exchange Rate Gain/Loss",
+                    "TypeId": 1016, "CurrencyId": 1, "CurrencyName": "CAD"},                 # 8150
+    },
+    "USD": {
+        "deposit": {"Id": "72FF68D10C3CFB73A65FAFF134003", "Name": "BMO 44569097 (USD)",
+                    "CurrencyId": 1001, "CurrencyName": "USD", "GLCode": "1170"},
+        "fee":     {"Id": "B7D1B02C7EB5CD837D800F3B405B", "Name": "Credit Card Processing Fees (USD)",
+                    "TypeId": 1034, "CurrencyId": 1001, "CurrencyName": "USD"},              # 7456
+        "fx":      {"Id": "B7E6DB72935ED49A7DA809A1468B", "Name": "Exchange Rate Gain/Loss - USD",
+                    "TypeId": 1016, "CurrencyId": 1001, "CurrencyName": "USD"},              # 8151
     },
 }
 
@@ -243,13 +244,36 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
         "HomeCurrencyId": 1, "HomeCurrencyName": "CAD", "ExchangeRate": str(exchange_rate),
         "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
         "CashBackAccntName": "", "CashBackAmount": 0,
-        "Memo": "stripe consolidated" + (" - ERROR: " + " ".join(missing) if missing else ""),
+        "Memo": "stripe %s" % cur.lower() + (" - ERROR: " + " ".join(missing) if missing else ""),
     }
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": matched}, matched, missing
 
 
+def _check_duplicate(payout):
+    """Raise if a Bank Deposit for this exact payout amount already exists within
+    a few days of the payout date -- catches a payout someone already booked
+    manually (the Aug 2026 CAD payouts were) before we'd double it up. Same
+    guard as shopify_deposits.py."""
+    gl_code = _accounts(payout["currency"])["deposit"].get("GLCode")
+    if not gl_code:
+        return
+    pdate = datetime.strptime(payout["date"], "%Y-%m-%d")
+    start = (pdate - timedelta(days=3)).strftime("%Y-%m-%d")
+    end = (pdate + timedelta(days=3)).strftime("%Y-%m-%d")
+    rows = XoroClient().get_gl_transactions(start, end, account_gl_codes=gl_code)
+    amt = round(payout["amount"], 2)
+    hit = next((r for r in rows if r.get("TxnTypeName") == "Bank Deposit"
+                and round(float(r.get("Amount", 0)), 2) == amt), None)
+    if hit:
+        raise WebMethodError(
+            "a Bank Deposit (%s, %.2f) already exists near %s for this payout -- "
+            "refusing to create a duplicate. Pass check_duplicate=False to override."
+            % (hit.get("RefNumber") or hit.get("TxnNumber"), amt, payout["date"])
+        )
+
+
 def create_stripe_deposit(amount=None, payout_id=None, date_min=None, date_max=None,
-                          client=None, dry_run=True):
+                          client=None, dry_run=True, check_duplicate=True):
     payout = get_payout(amount=amount, payout_id=payout_id, date_min=date_min, date_max=date_max)
     client = client or WebMethodClient.from_config()
     cur = payout["currency"]
@@ -259,6 +283,8 @@ def create_stripe_deposit(amount=None, payout_id=None, date_min=None, date_max=N
             "ACCOUNTS[%r] still has STUB_ account ids — fill in the real deposit/fee/fx "
             "FAccountingIds before creating a live deposit (dry_run=True works today)." % cur
         )
+    if not dry_run and check_duplicate:
+        _check_duplicate(payout)
 
     undep = client.get_undeposited_transactions(CURRENCY_ID[cur])
     rate = "1"

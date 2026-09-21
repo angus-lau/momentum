@@ -66,17 +66,16 @@ Amex Sofia 4002 is the DHL card: each DHL charge is a whole invoice whose shipme
 - **Gotchas found:** Amex changed the 4002 export layout (header on line 1, description col 2 — `bank_configs.json` updated 2026-09-21); E10 charge lines over $1,000 carry a thousands comma the parser used to skip (fixed — it had silently dropped a $1,483.60 GST line).
 - **See:** [`4002 DHL reconcile/README.md`](4002%20DHL%20reconcile/README.md)
 
-## ✅ Stripe Payouts
+## ✅ Stripe Deposits (payout → Xoro bank deposit)
 
-Prints Stripe payouts with their underlying balance transactions (charges, refunds, fees, adjustments) for any date or range. Charge descriptions contain Xoro customer-deposit references (e.g. `CA-CD034793`), giving a clean join key for Stripe ↔ Xoro reconciliation.
+For a Stripe payout, matches each charge/refund to a Xoro undeposited Customer Deposit (`LineRefNo` == the Stripe charge description, e.g. `CA-CD038402` / `US-CD038326`) and books a bank deposit — payment line(s) + a fee line (+ FX-rounding line if needed), balancing to the payout exactly. Same `BankDepositWebMethods.createBankDeposit` mechanism as Shopify; only the match key differs.
 
-- **Folder:** `Projects/momentum/Stripe Payouts/`
-- **Run:** `python3 payouts.py [start_date] [end_date]` (dates `YYYY-MM-DD`; no args = today)
-- **Auth:** reads `STRIPE_LIVE_KEY` from `Projects/momentum/.env` (gitignored). Restricted read-only key (`rk_live_…`).
-- **Output:** terminal only — payout header + per-line type, amount, fee, net, description
-- **Stdlib only** — no `pip install` needed
-- **Verified:** April 16, 2026 — 1 payout, 2 charges, $13.76 fees, reconciles to net payout
-- **See:** [`Stripe Payouts/README.md`](Stripe%20Payouts/README.md)
+- **File:** `stripe_deposits.py` (reads Stripe with the restricted `rk_live_` key in `.env` — `STRIPE_LIVE_KEY`; writes to Xoro via `xoro_webmethods`)
+- **Run:** `python3 stripe_deposits.py` (dry-runs the most recent payout), `python3 stripe_deposits.py 258.67` (by amount), `python3 stripe_deposits.py "" 2026-09-01 2026-09-30` (date range) — dry-run by default; `create_stripe_deposit(amount=..., dry_run=False)` to post
+- **Accounts (per payout currency, from Stripe's own external_accounts + the manually-booked Aug 2026 deposits):** CAD → **1160 BMO 41547651 (CAD)** (BMO …7651), fee **7455**; USD → **1170 BMO 44569097 (USD)** (BMO …9097), fee **7456**; FX 8150/8151. Memo `stripe cad` / `stripe usd` (matches the manual convention).
+- **Duplicate guard:** refuses if a Bank Deposit of the same amount exists within ±3 days on the deposit-to account (`check_duplicate=False` to override) — the Aug 2026 CAD payouts had been booked by hand, so this matters.
+- **Verified live 2026-09-21:** three September payouts created and confirmed in the GL — `po_…s3kEkQhs` 09/16 **257.30 USD** → 1170 (GL 647146), `po_…U58Ma1WB` 09/18 **258.67 CAD** → 1160 (647147), `po_…UeXrY6BV` 09/21 **480.24 CAD** → 1160 (647148); each = gross charge − Stripe fee, one matched undeposited row, no FX residual. Guard proven against the already-booked 08/21 payout (`BD052047`).
+- **Also:** `Stripe Payouts/payouts.py [start] [end]` — read-only listing of payouts + balance transactions (stdlib only); handy for eyeballing a month before running the deposits.
 
 ## ✅ Shopify Deposits (Consolidated + Service Centre)
 
