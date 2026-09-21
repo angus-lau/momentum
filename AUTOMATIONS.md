@@ -2,6 +2,8 @@
 
 Quick index of the automations that are built, tested, and ready to re-run.
 
+> **Fiscal year folders:** FY ends **July 31**. Month folders live under `CC Expenses/YE <fy>/` and `Bank Reconciliations/FY<fy>/`, where `<fy>` = calendar year for Jan–Jul, calendar year + 1 for Aug–Dec (so `26 07` → YE 2026, `26 08` → YE 2027). Every script derives this from the month (`convert_activity.fiscal_year_end`, `wise_statements.fiscal_year_folder`, `run.sh ye_for_month`) — nothing hardcodes a year.
+
 ## 🔄 Ceridian (Dayforce) Payroll Bill
 
 Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceridian Corporation — booking wages/CPP/EI by department plus the Dayforce service fee, netted against LTD so the bill balances exactly to the PDF's "Total Payment Due". Built once via browser (no API schema existed for Bill creation), payload now captured for future API-driven runs.
@@ -194,6 +196,6 @@ Pulls Wise (CAD/EUR/GBP) balance statements for a given month and drops PDF + CS
 - **Run:** `python3 wise_statements.py 2026-07` (all of CAD/EUR/GBP) or `--currency GBP` for one
 - **Auth:** reads `WISE_API_KEY` from `Projects/momentum/.env` (gitignored). Personal access token from Wise → Settings → API tokens. Business profile (ST. MORITZ WATCH CORP) is resolved automatically via `GET /v2/profiles`.
 - **Logic:** for each of CAD/EUR/GBP, checks the compact JSON statement for the month first — skips the download entirely if there are zero transactions, so empty months don't clutter the reconciliation folders
-- **Output:** `.../Bank Reconciliations/FY2026/Wise {CUR}/{YY MM}/statement_{balanceId}_{CUR}_{start}_{end}.{pdf,csv}` — reuses the month folder if it already exists (e.g. from a manual pull), otherwise creates it
+- **Output:** `.../Bank Reconciliations/FY{fy}/Wise {CUR}/{YY MM}/statement_{balanceId}_{CUR}_{start}_{end}.{pdf,csv}` — reuses the month folder if it already exists (e.g. from a manual pull), otherwise creates it
 - **Stdlib only** — no `pip install` needed
 - **Verified:** July 2026 — GBP had 1 transaction (£41.91 deposit from AVIVA PLC) and got PDF+CSV written to a newly created `Wise GBP/26 07/`; CAD and EUR had no activity and were skipped

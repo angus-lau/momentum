@@ -34,8 +34,14 @@ API_BASE = "https://api.wise.com"
 
 ONEDRIVE_BASE = (
     "/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/"
-    "Accounting Docs/Bank Reconciliations/FY2026"
+    "Accounting Docs/Bank Reconciliations"
 )
+FISCAL_YEAR_END_MONTH = 7  # FY ends July 31: 2026-08 is the first month of FY2027
+
+
+def fiscal_year_folder(year, month):
+    """``FY2027`` for 2026-08 .. 2027-07."""
+    return f"FY{year + 1 if month > FISCAL_YEAR_END_MONTH else year}"
 
 # Only the Wise currencies actually reconciled (each has a OneDrive folder).
 CURRENCY_FOLDER = {"CAD": "Wise CAD", "EUR": "Wise EUR", "GBP": "Wise GBP"}
@@ -157,7 +163,7 @@ def main():
         if not folder:
             print(f"{currency}: {count} transaction(s) in {args.month}, but no OneDrive folder mapped — skipping download")
             continue
-        out_dir = os.path.join(ONEDRIVE_BASE, folder, month_folder)
+        out_dir = os.path.join(ONEDRIVE_BASE, fiscal_year_folder(start_date.year, start_date.month), folder, month_folder)
         existed = os.path.isdir(out_dir)
         print(f"{currency}: {count} transaction(s) in {args.month} — {'adding to' if existed else 'creating'} \"{folder}/{month_folder}\"")
         for fmt in ("pdf", "csv"):

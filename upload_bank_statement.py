@@ -50,9 +50,9 @@ def get_csv_path(bank: str, month: str = None):
     if "folder" not in cfg:
         return None
     month = get_month_str(month)
-    year = 2000 + int(month[:2])
+    from convert_activity import fiscal_year_end  # FY ends July 31
     return os.path.join(
-        CONFIG["base_path"], f"YE {year}", cfg["folder"], month, CONFIG["filename"]
+        CONFIG["base_path"], f"YE {fiscal_year_end(month)}", cfg["folder"], month, CONFIG["filename"]
     )
 
 

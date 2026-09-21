@@ -7,18 +7,24 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BASE="/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/Accounting Docs/CC Expenses/YE 2026/Amex Sofia 4002"
+CC="/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/Accounting Docs/CC Expenses"
+
+# FY ends July 31: "26 08" lives under "YE 2027", "26 07" under "YE 2026".
+ye_for_month() {
+  local yy="${1%% *}" mm="${1##* }"
+  if [ "$((10#$mm))" -gt 7 ]; then echo "$((2000 + 10#$yy + 1))"; else echo "$((2000 + 10#$yy))"; fi
+}
 
 if [ $# -eq 0 ]; then
-  echo "Available month folders in $BASE :"
-  ls -1 "$BASE"
+  echo "Available month folders:"
+  ls -1d "$CC"/YE\ */Amex\ Sofia\ 4002/* | sed "s|$CC/||"
   echo
-  read -p "Which month folder? (e.g. '26 05') " MONTH
-  TARGET="$BASE/$MONTH"
+  read -p "Which month folder? (e.g. '26 08') " MONTH
+  TARGET="$CC/YE $(ye_for_month "$MONTH")/Amex Sofia 4002/$MONTH"
 elif [ -d "$1" ]; then
   TARGET="$1"
 else
-  TARGET="$BASE/$1"
+  TARGET="$CC/YE $(ye_for_month "$1")/Amex Sofia 4002/$1"
 fi
 
 if [ ! -d "$TARGET" ]; then

@@ -39,16 +39,25 @@ def get_month_str(month=None):
     return prev_month.strftime("%y %m")
 
 
+FISCAL_YEAR_END_MONTH = 7  # FY ends July 31: "26 08" is the first month of YE 2027
+
+
+def fiscal_year_end(month_str):
+    """Year-end folder year for a 'YY MM' month: Aug–Dec roll into the next YE."""
+    yy, mm = month_str.split()
+    year = 2000 + int(yy)
+    return year + 1 if int(mm) > FISCAL_YEAR_END_MONTH else year
+
+
 def get_month_folder(bank, month=None):
-    """Build the month folder path for a bank account."""
+    """Build the month folder path for a bank account: base/YE <fy>/<folder>/<YY MM>."""
     acct = ACCOUNTS.get(bank)
     if not acct or "folder" not in acct:
         return None
     month_str = get_month_str(month)
-    year = 2000 + int(month_str[:2])
     return os.path.join(
         UPLOAD_CONFIG["base_path"],
-        f"YE {year}",
+        f"YE {fiscal_year_end(month_str)}",
         acct["folder"],
         month_str,
     )
