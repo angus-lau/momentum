@@ -368,6 +368,7 @@ Authenticated by the `.ASPXAUTH`-style **session cookie** — the *legitimate* a
 - `getDataForBankDeposit`, `getBankDepositStatusTypes`, `getBankDepositSearchComponents` — supporting lookups (home-currency/exchange-rate, status enum, search field metadata).
 
 **`BillWebMethods.asmx`** — `createNewBill`, `createNewItemReceipt`, `createBillFromItemReceiptLines`, `updateBill` (4009 FedEx case).
+- **Tax Adjustments** (captured 2026-09-21 from a live `createNewBill`): a header-level array, separate from per-line `TaxData`. `billHeader.TaxAdjItemArr` = `[{"Id": <tax item id, e.g. 110 = "GST Purchase 5%">, "Name": "...", "Amount": <as typed, no rate math>, "Memo": ""}]`, with `TaxAdjItemArrLastValid` an identical copy. `TotalTaxAmt` = line tax + adjustments; `TotalAmt` = line amounts + `TotalTaxAmt`. Lines can carry `TaxCodeId: ""` / empty `TaxData` and the adjustment alone supplies the GST — the right shape for a DHL bill where the E10 GST is booked as a tax adjustment. Ids seen: vendor DHL Express Canada = `387`, payment term `1318`, `2250 - VAT NL - Collected` = `B7D04105A81B7AA94B5C29034A5C`.
 
 **`CreditMemoWebMethods.asmx`** — `createCreditMemo`, `createCreditMemoFromInvoice` (refunds).
 
