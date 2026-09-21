@@ -344,8 +344,9 @@ def main(folder):
 
     # Back up existing file if present
     if out_xlsx.exists():
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup = out_xlsx.with_suffix(f".bak-{ts}.xlsx")
+        # One rolling backup, overwritten each run — the sheet is fully script-generated,
+        # so re-runs shouldn't pile up timestamped copies in the month folder.
+        backup = out_xlsx.with_suffix(".bak.xlsx")
         shutil.copy2(out_xlsx, backup)
         print(f"Backed up existing xlsx → {backup.name}")
 

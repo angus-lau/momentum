@@ -37,7 +37,7 @@ true PDF balance), then the 4 `dhl_bank_statement.csv` lines with `EndBalance` =
 
 | File | Purpose |
 |---|---|
-| `DHL Reconcile.xlsx` | Per-invoice GL allocation, matches the template column structure (overwrites; existing file is auto-backed-up to `DHL Reconcile.bak-<timestamp>.xlsx`) |
+| `DHL Reconcile.xlsx` | Per-invoice GL allocation, matches the template column structure (overwrites; the previous file is kept as a single rolling `DHL Reconcile.bak.xlsx`) |
 | `dhl_reconcile_lines.csv` | Same data as the xlsx, in case you'd rather paste into Excel manually |
 | `dhl_bank_statement.csv` | Four-line summary matching `DHLBankStatementImport.csv` format for bank import |
 | `dhl_review.csv` | Only written when at least one row failed a sanity check |
