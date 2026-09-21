@@ -118,7 +118,8 @@ def extract_balance(pdf_path, bank_config_key):
         if match:
             raw_date = match.group(1)
             # Normalize to MM/DD/YYYY
-            for fmt in ("%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%b%d, %Y"):
+            for fmt in ("%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%b%d, %Y",
+                        "%B%d,%Y", "%b%d,%Y"):  # TD PDFs lose their spaces
                 try:
                     closing_date = datetime.strptime(raw_date, fmt).strftime("%m/%d/%Y")
                     break

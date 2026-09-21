@@ -9,8 +9,9 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 | 1 | Download CC/bank activity files to OneDrive folders | Manual | — |
 | 2 | Convert activity files to Xero import format | `convert_activity.py --all` | Done |
 | 3 | Upload bank statements to Xoro | `upload_bank_statement.py --all` | Done |
-| 4 | Reconcile accounts in Xoro | — | Not started (API-driven) |
-| 5 | Download Stripe payout details | `Stripe Payouts/payouts.py` | Done |
+| 4 | Open reconciliation in Xoro (rec header + ending balance) | `xoro_webmethods.WebMethodClient.start_reconciliation` | Done |
+| 5 | Match lines / GL-code in Xoro rec screen | Manual | Manual by design |
+| 6 | Download Stripe payout details | `Stripe Payouts/payouts.py` | Done |
 
 ## Detailed Status
 
@@ -29,10 +30,11 @@ Monthly accounting automation for St. Moritz Watch (Xoro ERP).
 - Clicks Verify & Upload, confirms dialog
 - Loops through all configured accounts with `--all`
 
-### Reconciliation — Not started (API-driven)
-- The old `reconcile.py` (browser-click automation via `agent-browser` + Claude CLI GL classification) was removed 2026-08-22 — it had no API-driven consumers and predated the confirmed working `JournalEntryWebMethods.saveJournalEntry` endpoint (see `XORO_API.md`).
-- `reconciliation_rules.json` (learned payee → GL code mappings) and `GL_ACCOUNTS.md` (valid GL code reference) were kept — reusable by a future API-driven rebuild.
-- Blocker before rebuilding: capture a real `saveJournalEntry` POST from an actual UI reconcile to confirm which field links the JE back to the specific bank-statement row (see `XORO_API.md` → "The real internal API").
+### Reconciliation — Done up to opening the rec; line matching is manual by design
+- **Automated:** `statement_pipeline.py` commits the converted statement via API, then `WebMethodClient.start_reconciliation` (`BankReconcileWebMethods.addBankRecHeader`) opens the reconciliation with the PDF's ending balance and statement date.
+- **Manual (decided 2026-09-21):** matching statement lines to existing Xoro transactions and GL-coding the rest happens in the Xoro rec screen. GL coding is a judgment call (new vendors, splits, reimbursements), so it isn't automated on purpose.
+- If this ever gets painful, the next increment is "auto-match the obvious lines, hand back a short list needing a decision" — not full automation. `JournalEntryWebMethods.saveJournalEntry` is confirmed working (see `XORO_API.md`); the open question for a rebuild is which field links a JE back to its bank-statement row — capture a live UI reconcile before guessing.
+- `reconciliation_rules.json` (learned payee → GL code mappings) and `GL_ACCOUNTS.md` (valid GL code reference) are kept for that. The old browser-driven `reconcile.py` was removed 2026-08-22.
 
 ### Stripe Download (`Stripe Payouts/payouts.py`) — Done
 - Prints Stripe payouts + underlying balance transactions (charges, refunds, fees) for any date/range; terminal-only, no Xoro write-side yet. Superseded the root `stripe_download.py`, removed 2026-08-22 (no code depended on it).

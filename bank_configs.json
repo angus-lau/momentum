@@ -57,8 +57,8 @@
     "amount_type": "split",
     "debit_col": 2,
     "credit_col": 3,
-    "balance_pattern": "NEW BALANCE\\s+\\$?([\\d,]+\\.\\d{2})",
-    "date_pattern": "STATEMENT DATE:\\s+(\\w+ \\d{1,2}, \\d{4})"
+    "balance_pattern": "NEW\\s*BALANCE\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "STATEMENT\\s*DATE:\\s*([A-Za-z]+\\s?\\d{1,2},\\s?\\d{4})"
   },
   "boa": {
     "has_header": true,
