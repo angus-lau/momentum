@@ -79,11 +79,13 @@
   },
   "umpqua": {
     "has_header": true,
-    "date_col": 2,
-    "desc_col": 4,
-    "amount_type": "single",
-    "amount_col": 3,
-    "negate": false
+    "date_col": 0,
+    "desc_col": 5,
+    "amount_type": "split",
+    "debit_col": 2,
+    "credit_col": 3,
+    "balance_pattern": "Ending balance\\s+\\$?([\\d,]+\\.\\d{2})",
+    "date_pattern": "This statement:\\s*([A-Za-z]+\\s?\\d{1,2},\\s*\\d{4})"
   },
   "wise": {
     "has_header": true,
