@@ -118,7 +118,7 @@ Replaces the manual "download the monthly activity CSV from PayPal's reports UI"
 - **`month_end_balances(month)`** wraps `/v1/reporting/balances` — the 1143 reconciliation's ending balance straight from PayPal (Aug 2026: USD 2,548.06), instead of reading it off the last transaction row.
 - **For the reconciliation itself**, the API also carries two things the CSV doesn't: `custom_field.shop_id` (which Shopify store an order belongs to — the deposit split is by store, so this removes the documented "check both stores" ambiguity) and a structured `transaction_event_code`. `invoice_id` (the Shopify order token) is in **both** the CSV and the API.
 
-## 🔄 PayPal Payout Reconciliation (process defined, not yet scripted in-repo)
+## 🔄 PayPal Payout Reconciliation (deposits scripted; Fund Transfers, 1143 statement and workbook still manual)
 
 Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then matches each transaction to a Shopify order and books it into a Xoro bank deposit. Currently run step-by-step via ad hoc scripts in a scratch folder — not yet consolidated into a repo script.
 
@@ -150,6 +150,18 @@ Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then 
 - **Excel follow-up:** on each currency sheet, **yellow-highlight** rows whose transaction was added to a bank deposit; **red-highlight** rows that came up missing (no Shopify match at all, or no Xoro undeposited row) — matching the note added to the deposit's memo
 - **Verified:** July 2026 — all three deposit types created and reconciled to the penny: `BD052057` (Service Centre/CAD), `BD052058` (combined US-store/USD — **left as a work-in-progress at the user's direction**, they were editing it live in the Xoro UI in parallel with these API calls, e.g. order 67517 was added by them directly, not a bug; the combined fee line is deliberately not added yet; **don't edit it further via API without checking first**), `BD052059` (USD sheet, into 1143 — verified clean, no stray extra lines). Matched/unmatched rows highlighted yellow/red across the CAD/GBP/EUR/AUD/USD sheets. (Dollar totals and row counts are month-specific — not worth recording here; what matters is that each month's run should reconcile the deposit total to the matched lines minus fees, with unmatched items called out in the memo.)
 - **TODO:** consolidate the scratch scripts into a real repo script/folder once the process is confirmed across more currencies/months
+
+### Scripted: `paypal_deposits.py`
+
+`python3 paypal_deposits.py 2026-08` dry-runs the month; `--create [--only KEY]` posts. Reads the CSV `paypal_statements.py` filed (or `--api`), tags each transaction with its Shopify store from `custom_field.shop_id`, resolves `invoice_id` → Shopify order → Xoro `ChequeNo`, and builds the three deposits.
+
+- **Two things the manual process description left implicit**, both found live:
+  1. **Undeposited rows sit in the deposit's currency, not the customer's** — a US-store order is a USD row in Xoro even when PayPal took GBP for it, and Service Centre orders are CAD. Look them up by the deposit's header currency.
+  2. **Service Centre order numbers differ between systems** — Shopify names them `C36337`, Xoro holds `36337` (refs `SC-CD…`). The matcher tries the name and then the name without its leading letters.
+- **Rows are bounded to the working month.** The documented "pull every Xoro row sharing that ChequeNo" rule drags in later months: order 68503 sold in August and refunded 09/10 pulled that September refund into August, leaving the USD deposit 230.00 short of PayPal's own figure. With the bound, the USD deposit equals PayPal's `USD amounts − refunds − fees` exactly.
+- **The combined deposit's fee line is withheld automatically** while anything is still missing, per the documented timing; unmatched items are named in the memo.
+- **Verified:** August 2026 — `BD057312` Service Centre 228.56 CAD (5 lines), `BD057313` combined 6,962.85 USD (25 lines, fee held, 2 items flagged in the memo), `BD057314` USD-native 10,447.61 USD (49 lines) — which equals the USD sheet's `Deposits in USD, MINUS refunds, MINUS fees` to the cent.
+- **Still manual:** the Fund Transfers for withdrawals, the 1143 bank statement, and the reconciliation workbook.
 
 ### PayPal "User Initiated Withdrawal" rows → Xoro Fund Transfers
 
