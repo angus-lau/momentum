@@ -121,6 +121,24 @@ def cheque_candidates(order_number):
     return forms
 
 
+def in_month(row, month_last_day):
+    """Is this undeposited row part of the working month?
+
+    An order's ChequeNo can carry rows from later months too — order 68503 was
+    sold in August and refunded on 09/10, and that refund belongs to September's
+    deposit, not August's. Rows dated after the month end are left for their own
+    month.
+    """
+    raw = str(row.get("TxnDate") or "").strip()
+    if not raw:
+        return True
+    try:
+        m, d, y = (int(x) for x in raw.split("/"))
+    except ValueError:
+        return True
+    return datetime.date(y, m, d) <= month_last_day
+
+
 def group_by_order(txns):
     """{order_number: [txn, ...]} — several transactions can share one order."""
     out = defaultdict(list)
@@ -277,6 +295,7 @@ def build(month, use_api=False):
         matched, missing = [], []
         for order, ts in sorted(groups.items()):
             pool = next((by_cheque[f] for f in cheque_candidates(order) if by_cheque.get(f)), [])
+            pool = [r for r in pool if in_month(r, date)]
             if pool:
                 matched.append((order, ts, pool))
             else:

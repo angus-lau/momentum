@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from paypal_deposits import (
     SERVICE_CENTRE,
+    in_month,
     cheque_candidates,
     US_STORE,
     Txn,
@@ -78,6 +79,23 @@ class ChequeNumbers(unittest.TestCase):
 
     def test_blank(self):
         self.assertEqual(cheque_candidates(None), [""])
+
+
+class InMonth(unittest.TestCase):
+    LAST = datetime.date(2026, 8, 31)
+
+    def test_row_inside_the_month(self):
+        self.assertTrue(in_month({"TxnDate": "08/20/2026"}, self.LAST))
+
+    def test_later_refund_belongs_to_its_own_month(self):
+        # order 68503: sold in August, refunded 09/10 -> the refund is September's
+        self.assertFalse(in_month({"TxnDate": "09/10/2026"}, self.LAST))
+
+    def test_earlier_row_is_kept(self):
+        self.assertTrue(in_month({"TxnDate": "07/31/2026"}, self.LAST))
+
+    def test_unparseable_date_is_kept_for_review(self):
+        self.assertTrue(in_month({"TxnDate": ""}, self.LAST))
 
 
 class Fees(unittest.TestCase):
