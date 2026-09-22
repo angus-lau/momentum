@@ -78,18 +78,30 @@ def _fmt_stmt_amount(amount):
 def _fmt_stmt_date(date):
     """Format a date as ``M/D/YYYY`` (no leading zeros), Xoro's line-date shape.
 
-    Accepts a ``date``/``datetime``, an ISO ``YYYY-MM-DD`` string, a
-    ``MM/DD/YYYY`` / ``M/D/YYYY`` string (leading zeros stripped), or Amex
-    4009's ``DD Mon YYYY`` (e.g. ``09 Sep 2026``).
+    Accepts a ``date``/``datetime`` or a string in any format the bank exports
+    hand us: ISO ``YYYY-MM-DD``; US ``MM/DD/YYYY``; Wise's day-first
+    ``DD-MM-YYYY``; and Amex 4009's ``DD-Mon-YY`` / ``DD Mon YYYY`` (which of
+    those two it uses varies month to month).
+
+    Day-first matters: reading Wise's ``30-08-2026`` as ISO silently yields
+    ``8/2026/30``, so dashed dates are disambiguated by their parts.
     """
     if isinstance(date, str):
-        if "-" in date:                       # ISO YYYY-MM-DD
-            y, m, d = date.split("-")
-        elif "/" in date:                     # US MM/DD/YYYY (or M/D/YYYY)
-            m, d, y = date.split("/")
-        elif date.count(" ") == 2:            # Amex 4009 export: DD Mon YYYY
-            from datetime import datetime
-            dt = datetime.strptime(date.strip(), "%d %b %Y")
+        from datetime import datetime
+        text = date.strip()
+        if "-" in text:
+            parts = text.split("-")
+            if len(parts) == 3 and parts[1].isalpha():        # Amex: DD-Mon-YY
+                dt = datetime.strptime(text, "%d-%b-%y")
+                m, d, y = dt.month, dt.day, dt.year
+            elif len(parts[0]) == 4:                          # ISO: YYYY-MM-DD
+                y, m, d = parts
+            else:                                             # Wise: DD-MM-YYYY
+                d, m, y = parts
+        elif "/" in text:                     # US MM/DD/YYYY (or M/D/YYYY)
+            m, d, y = text.split("/")
+        elif text.count(" ") == 2:            # Amex 4009 export: DD Mon YYYY
+            dt = datetime.strptime(text, "%d %b %Y")
             m, d, y = dt.month, dt.day, dt.year
         else:
             return date

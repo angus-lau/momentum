@@ -134,6 +134,16 @@ class BankStatementFormatTest(unittest.TestCase):
     def test_date_us_slash_strips_leading_zeros(self):
         self.assertEqual(_fmt_stmt_date("05/31/2026"), "5/31/2026")
 
+    def test_date_wise_day_first(self):
+        # Wise CSV exports DD-MM-YYYY -- must not be read as ISO
+        self.assertEqual(_fmt_stmt_date("30-08-2026"), "8/30/2026")
+        self.assertEqual(_fmt_stmt_date("05-08-2026"), "8/5/2026")
+
+    def test_date_amex_day_month_abbrev(self):
+        # Amex 4009 exports either "08-Aug-26" or "09 Sep 2026" depending on the month
+        self.assertEqual(_fmt_stmt_date("08-Aug-26"), "8/8/2026")
+        self.assertEqual(_fmt_stmt_date("09 Sep 2026"), "9/9/2026")
+
 
 class ActivityRowsTest(unittest.TestCase):
     ROWS = [
