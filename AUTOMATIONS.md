@@ -89,6 +89,21 @@ For a Shopify payout, matches its orders to Xoro undeposited payments (`ChequeNo
 - **Verified:** July 2026, full month, both stores — 33 US + 21 CAD payouts total. 25 were genuinely new (no pre-existing deposit) and created live; 29 already had a manually-created deposit and were left alone. Of the 25 created, several were initially short on deleted-order refunds or not-yet-synced orders; `--retry` swept and closed every gap that had a real order # behind it (12 CAD deposits topped up to exact balance in one pass) — the only unresolved gaps left afterward are deleted-order refunds (unrecoverable) and one order still pending Shopify→Xoro sync.
 - **See:** `XORO_API.md` → `BankDepositWebMethods.asmx` for the underlying API methods (`createBankDeposit`, `updateBankDeposit`, `getBankDepositObjInfoFromId`, `voidBankDeposit`).
 
+## ✅ Afterpay Deposits (settlement CSV + bank export → Xoro bank deposit)
+
+Afterpay pays the US store net of its merchant fee, batching by **settlement date**, and the money lands in Umpqua 1–3 days later — so one `AFTERPAY … EDI PAYMNT` credit can cover several settlement dates (a refund on one date is carried into the *next* payout). Matches each bank credit to the contiguous run of settlement dates that sums to it, then books the deposit.
+
+- **Folder:** `Projects/momentum/Afterpay Reconcile/`
+- **Inputs:** the Afterpay settlement export (Business Hub → Reconciliation → Settlement Export) and the Umpqua/Columbia activity CSV for the month
+- **Run:** `python3 afterpay_deposits.py <settlements.csv> <umpqua_export.csv>` (dry-run), `--create` to post. `afterpay_reconcile.py <settlements.csv>` remains as the per-settlement-date summary view.
+- **The join is two hops:** Afterpay only knows its own `Merchant Order ID` token, so token → **Shopify order search** → `order_number` → Xoro `ChequeNo` (same search trick the PayPal flow uses — the token isn't a field on the order but Shopify indexes it). Confirmed working on all 13 Aug/Sep tokens.
+- **Accounts:** deposit-to **1140 Umpqua Bank 1729 (USD)**, fee **7456 CC Processing Fees (USD)**. Memo `afterpay usd`.
+- **Fee line = gross − bank amount**, not the sum of Afterpay's stated fees: Afterpay nets the batch and rounds **half-up** (311.00 − 14.295 → pays 296.71), so the stated fees can be a cent off what the bank actually paid. The bank is the authority; the ≤1¢ difference is absorbed in the fee line.
+- **Split tenders work as-is:** an order part-paid by Afterpay has a Xoro undeposited row for the Afterpay portion only (order 68251: $716.25 order, $431.25 Afterpay row) — which is what the settlement's Order Amount matches.
+- **Refunds keep the fee:** a refunded order gets both its charge and refund Xoro rows; Afterpay doesn't return the original merchant fee, so booking both legs surfaces the real loss (order 68281, Aug 2026).
+- **Duplicate guard:** refuses if a Bank Deposit of the same amount already sits on 1140 within ±3 days.
+- **Verified:** Aug 2026 — 5 Umpqua credits ($296.71 / $411.54 / $594.50 / $138.99 / $272.78) all explained and balanced to the cent; the $138.99 one nets the 08/12 refund against the 08/17 settlement. Settlements dated 07/30 (paid before the window) and 08/30–09/03 (after) correctly left for their own months.
+
 ## 🔄 PayPal Payout Reconciliation (process defined, not yet scripted in-repo)
 
 Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then matches each transaction to a Shopify order and books it into a Xoro bank deposit. Currently run step-by-step via ad hoc scripts in a scratch folder — not yet consolidated into a repo script.
