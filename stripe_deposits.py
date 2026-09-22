@@ -27,7 +27,7 @@ import urllib.request
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from xoro_api import XoroClient
+from xoro_api import XoroClient, exchange_rate_for
 from xoro_webmethods import WebMethodClient, WebMethodError
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -287,13 +287,10 @@ def create_stripe_deposit(amount=None, payout_id=None, date_min=None, date_max=N
         _check_duplicate(payout)
 
     undep = client.get_undeposited_transactions(CURRENCY_ID[cur])
-    rate = "1"
-    if cur != "CAD":
-        try:
-            hc = (client.get_data_for_bank_deposit() or {}).get("HomeCurrencyObj") or {}
-            rate = str(hc.get("ExchangeRate") or hc.get("Rate") or rate)
-        except Exception:  # noqa: BLE001
-            pass
+    # Xoro needs the real CAD/USD rate: HomeCurrencyObj carries no rate, and leaving
+    # this at 1 books a USD deposit as though 1 USD = 1 CAD (which it did, until
+    # 2026-09-22 -- six deposits had to be corrected).
+    rate = str(exchange_rate_for(payout["date"], cur))
 
     obj, matched, missing = build_deposit(payout, undep, exchange_rate=rate)
     det = obj["BankDepositDetailArr"]

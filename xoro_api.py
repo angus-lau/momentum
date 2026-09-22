@@ -252,3 +252,52 @@ class XoroClient:
 
     def import_credit_memo(self, payload):
         return self._post("creditmemo/import", payload)
+
+
+# ---------- exchange rates ----------
+
+class AmbiguousRate(Exception):
+    """More than one rate is equally common that day — the caller must choose."""
+
+
+def pick_rate(gl_rows, currency_code, home_currency="CAD"):
+    """Xoro's exchange rate for ``currency_code`` implied by a day's GL rows.
+
+    Each posting carries ``AmountHomeCurrency / Amount`` — the rate applied when
+    that transaction was created — so a day holds several rates and the dominant
+    one is Xoro's rate for the date. Rows are restricted to accounts in the target
+    currency (an account name ends with "(USD)"), because mixing EUR/GBP postings
+    in produces a meaningless average.
+
+    Returns 1 when the currency *is* the home currency. Raises AmbiguousRate when
+    the top two counts tie, rather than silently picking one.
+    """
+    if currency_code == home_currency:
+        return 1
+    counts = {}
+    for r in gl_rows:
+        name = r.get("F_AccountingName") or ""
+        amount, home = r.get("Amount"), r.get("AmountHomeCurrency")
+        if "(%s)" % currency_code not in name or not amount or not home:
+            continue
+        if abs(amount) <= 1:          # tiny amounts round badly
+            continue
+        rate = round(home / amount, 5)
+        if rate > 0:
+            counts[rate] = counts.get(rate, 0) + 1
+    if not counts:
+        raise AmbiguousRate("no %s postings to derive a rate from" % currency_code)
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        raise AmbiguousRate(
+            "%s rate is tied that day: %s and %s both appear %d times"
+            % (currency_code, ranked[0][0], ranked[1][0], ranked[0][1]))
+    return ranked[0][0]
+
+
+def exchange_rate_for(date, currency_code, client=None, home_currency="CAD"):
+    """``pick_rate`` for a ``YYYY-MM-DD`` date, fetching that day's GL."""
+    if currency_code == home_currency:
+        return 1
+    client = client or XoroClient()
+    return pick_rate(list(client.get_gl_transactions(date, date)), currency_code, home_currency)

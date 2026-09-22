@@ -42,6 +42,7 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 
 import paypal_statements as pps
+from xoro_api import exchange_rate_for
 from xoro_webmethods import WebMethodClient
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -249,6 +250,64 @@ def shopify_orders(tokens, shop_id):
     return out
 
 
+# ---------- deposit payload ----------
+
+def _fee_line(acct, amount, line_number, txn_date):
+    return {"AllowDuplicateThirdPartyRefNo": False, "Amount": float(amount), "BankDepositId": 0,
+            "ChequeNo": "", "DeleteFlag": False,
+            "DepositFromAccntCurrencyId": acct["CurrencyId"],
+            "DepositFromAccntCurrencyName": acct["CurrencyName"],
+            "DepositFromAccntId": acct["Id"], "DepositFromAccntName": acct["Name"],
+            "DepositFromAccntTypeId": acct.get("TypeId"),
+            "EntityAccountId": "", "EntityName": "", "EntityTypeId": 0, "EntityTypeName": "",
+            "Id": 0, "LineNumber": line_number, "LinkedFlag": None, "LinkedTxnTableId": 0,
+            "TxnDate": txn_date, "LinkedTxnDate": txn_date, "Memo": "PayPal fees",
+            "StoreId": ADJ_STORE_ID, "StoreName": ADJ_STORE_NAME}
+
+
+def memo_with_missing(key, r):
+    """The deposit memo, with any unresolved items named so they can be chased."""
+    memo = deposit_memo(key, r["date"], r["currencies"])
+    if r["missing"]:
+        memo += " - MISSING: " + "; ".join(r["missing"])
+    return memo
+
+
+def build_deposit_obj(key, r):
+    """The bankDepositObj for one deposit.
+
+    ``ExchangeRate`` must be supplied: the API does not populate it (omitting the
+    field stores 0 and zeroes every home-currency amount), so it is taken from
+    Xoro's own GL for the deposit date. The combined deposit's fee line is held
+    back while anything is still missing — it is summed over whatever is actually
+    in the deposit, once the month settles.
+    """
+    acct, header_cur, fee_acct = DEPOSITS[key]
+    txn_date = r["date"].strftime("%-m/%-d/%Y")
+    lines = []
+    for _order, _ts, pool in r["matched"]:
+        for row in pool:
+            line = dict(row)
+            line["LinkedFlag"] = True
+            line["LineNumber"] = len(lines)
+            lines.append(line)
+    hold_fee = key == "combined" and bool(r["missing"])
+    if r["fee"] and not hold_fee:
+        lines.append(_fee_line(fee_acct, r["fee"], len(lines), txn_date))
+    header = {
+        "Id": -1, "TxnId": None, "TxnNo": -1, "TxnDate": txn_date, "BankDepositNumber": None,
+        "DepositToAccntId": acct["Id"], "DepositToAccntName": acct["Name"],
+        "DepositToAccntCurrencyId": CURRENCY_ID[header_cur],
+        "TotalAmount": 0, "CurrencyCode": header_cur, "CurrencyId": CURRENCY_ID[header_cur],
+        "HomeCurrencyId": 1, "HomeCurrencyName": "CAD",
+        "ExchangeRate": str(exchange_rate_for(r["date"].isoformat(), header_cur)),
+        "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
+        "CashBackAccntName": "", "CashBackAmount": 0,
+        "Memo": memo_with_missing(key, r),
+    }
+    return {"BankDepositHeaderObj": header, "BankDepositDetailArr": lines}, hold_fee
+
+
 # ---------- report ----------
 
 def build(month, use_api=False):
@@ -316,7 +375,7 @@ def build(month, use_api=False):
     return report, withdrawals, conversions, txns
 
 
-def main(month, use_api=False, create=False):
+def main(month, use_api=False, create=False, only=None):
     report, withdrawals, conversions, txns = build(month, use_api=use_api)
     for key, r in report.items():
         print("\n=== %s → %s (header %s) ===" % (key, r["account"]["Name"], r["header_currency"]))
@@ -353,12 +412,31 @@ def main(month, use_api=False, create=False):
     if not create:
         print("\nDry run — nothing created.")
         return
-    raise SystemExit("--create is not implemented yet: confirm the dry-run output first")
+
+    client = WebMethodClient.from_config()
+    for key, r in report.items():
+        if only and key != only:
+            continue
+        obj, hold_fee = build_deposit_obj(key, r)
+        lines = obj["BankDepositDetailArr"]
+        total = sum(Decimal(str(l["Amount"])) for l in lines)
+        print("\ncreating %s: %d line(s), total %s %s%s"
+              % (key, len(lines), total, r["header_currency"],
+                 "  (fee line held back — items still missing)" if hold_fee else ""))
+        print("  memo: %s" % obj["BankDepositHeaderObj"]["Memo"])
+        client.create_bank_deposit(obj)
+        print("  created")
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if len(args) != 1:
+    argv = sys.argv[1:]
+    only = None
+    if "--only" in argv:
+        i = argv.index("--only")
+        only = argv[i + 1] if i + 1 < len(argv) else None
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
+    if len(args) != 1 or (only and only not in DEPOSITS):
         print(__doc__)
         sys.exit(1)
-    main(args[0], use_api="--api" in sys.argv, create="--create" in sys.argv)
+    main(args[0], use_api="--api" in argv, create="--create" in argv, only=only)

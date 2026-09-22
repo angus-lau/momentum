@@ -2,6 +2,8 @@
 
 Quick index of the automations that are built, tested, and ready to re-run.
 
+> **⚠️ Bank deposit `ExchangeRate`:** Xoro needs it on every deposit to state the amount in CAD (the home currency). The **API does not populate it** — omitting the field stores `0` and zeroes every home-currency GL amount, and hardcoding `1` books a USD deposit as though 1 USD = 1 CAD. Use `xoro_api.exchange_rate_for(date, currency)`, which takes Xoro's own rate for that date from GL postings on accounts in that currency (it raises `AmbiguousRate` rather than guessing when a day has two equally common rates). A deposit in the home currency is rate `1`. Found 2026-09-22 after six USD deposits were posted at rate 1 and had to be corrected via `updateBankDeposit`.
+
 > **Fiscal year folders:** FY ends **July 31**. Month folders live under `CC Expenses/YE <fy>/` and `Bank Reconciliations/FY<fy>/`, where `<fy>` = calendar year for Jan–Jul, calendar year + 1 for Aug–Dec (so `26 07` → YE 2026, `26 08` → YE 2027). Every script derives this from the month (`convert_activity.fiscal_year_end`, `wise_statements.fiscal_year_folder`, `run.sh ye_for_month`) — nothing hardcodes a year.
 
 ## 🔄 Ceridian (Dayforce) Payroll Bill

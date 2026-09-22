@@ -38,7 +38,7 @@ from collections import OrderedDict, defaultdict
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from xoro_webmethods import WebMethodClient, WebMethodError  # noqa: E402
-from xoro_api import XoroClient  # noqa: E402
+from xoro_api import XoroClient, exchange_rate_for  # noqa: E402
 
 ENV_PATH = pathlib.Path(__file__).resolve().parent.parent / ".env"
 SHOPIFY_API_VERSION = "2024-10"
@@ -244,7 +244,9 @@ def build_deposit(match, order_numbers, undeposited):
         "DepositToAccntId": DEPOSIT_ACCOUNT["Id"], "DepositToAccntName": DEPOSIT_ACCOUNT["Name"],
         "DepositToAccntCurrencyId": CURRENCY_ID, "TotalAmount": 0,
         "CurrencyCode": CURRENCY, "CurrencyId": CURRENCY_ID,
-        "HomeCurrencyId": 1, "HomeCurrencyName": "CAD", "ExchangeRate": "1",
+        "HomeCurrencyId": 1, "HomeCurrencyName": "CAD",
+        # the real rate for the deposit date -- 1 would book USD as though it were CAD
+        "ExchangeRate": str(exchange_rate_for(match["date"].isoformat(), CURRENCY)),
         "CashBackMemo": "", "CashBackAccntId": "", "CashBackAccntCurrencyId": "",
         "CashBackAccntName": "", "CashBackAmount": 0, "Memo": memo,
     }
