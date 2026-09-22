@@ -104,6 +104,18 @@ Afterpay pays the US store net of its merchant fee, batching by **settlement dat
 - **Duplicate guard:** refuses if a Bank Deposit of the same amount already sits on 1140 within ±3 days.
 - **Verified:** Aug 2026 — 5 Umpqua credits ($296.71 / $411.54 / $594.50 / $138.99 / $272.78) all explained and balanced to the cent; the $138.99 one nets the 08/12 refund against the 08/17 settlement. Settlements dated 07/30 (paid before the window) and 08/30–09/03 (after) correctly left for their own months.
 
+## ✅ PayPal Monthly CSV (API → FY folder)
+
+Replaces the manual "download the monthly activity CSV from PayPal's reports UI" step. Pulls the month from `/v1/reporting/transactions` and writes PayPal's own 18-column export format into `Bank Reconciliations/FY{fy}/Paypal/{YY MM}/`.
+
+- **File:** `paypal_statements.py` — **Run:** `python3 paypal_statements.py 2026-08` (`--stdout` to preview, `--out DIR` to write elsewhere)
+- **Auth:** `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` in `.env` (live; the app has the `reporting/search/read` scope). Stdlib only.
+- **Verified 2026-09-22:** generated August 2026 and diffed against the hand-downloaded export — **145/145 transactions, identical header, zero field mismatches, identical row order.**
+- **Format details that had to be matched:** `sales_tax_amount` is reported by the API positive but the export negates it; a currency-conversion/refund row inherits the parent payment's `shipping_amount` (the API only puts it on the parent); `Reference Txn ID` is filled only for rows derived from another transaction (an Express Checkout Payment carries a `paypal_reference_id` pointing at the *order*, and the export leaves the column blank); rows are grouped by currency — primary (USD) first, then alphabetically — each block oldest-first, with a row following the transaction it references when timestamps tie.
+- **⚠️ There is no PDF.** PayPal's REST API exposes only `/v1/reporting/transactions` and `/v1/reporting/balances`; every statement/document endpoint 404s and the transactions endpoint rejects `Accept: application/pdf` (406). The monthly statement PDF can only come from the web reports UI — download it by hand if the audit file is wanted.
+- **`month_end_balances(month)`** wraps `/v1/reporting/balances` — the 1143 reconciliation's ending balance straight from PayPal (Aug 2026: USD 2,548.06), instead of reading it off the last transaction row.
+- **For the reconciliation itself**, the API also carries two things the CSV doesn't: `custom_field.shop_id` (which Shopify store an order belongs to — the deposit split is by store, so this removes the documented "check both stores" ambiguity) and a structured `transaction_event_code`. `invoice_id` (the Shopify order token) is in **both** the CSV and the API.
+
 ## 🔄 PayPal Payout Reconciliation (process defined, not yet scripted in-repo)
 
 Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then matches each transaction to a Shopify order and books it into a Xoro bank deposit. Currently run step-by-step via ad hoc scripts in a scratch folder — not yet consolidated into a repo script.
