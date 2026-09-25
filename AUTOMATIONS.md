@@ -151,6 +151,17 @@ Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then 
 - **Verified:** July 2026 — all three deposit types created and reconciled to the penny: `BD052057` (Service Centre/CAD), `BD052058` (combined US-store/USD — **left as a work-in-progress at the user's direction**, they were editing it live in the Xoro UI in parallel with these API calls, e.g. order 67517 was added by them directly, not a bug; the combined fee line is deliberately not added yet; **don't edit it further via API without checking first**), `BD052059` (USD sheet, into 1143 — verified clean, no stray extra lines). Matched/unmatched rows highlighted yellow/red across the CAD/GBP/EUR/AUD/USD sheets. (Dollar totals and row counts are month-specific — not worth recording here; what matters is that each month's run should reconcile the deposit total to the matched lines minus fees, with unmatched items called out in the memo.)
 - **TODO:** consolidate the scratch scripts into a real repo script/folder once the process is confirmed across more currencies/months
 
+### Scripted: `paypal_workbook.py`
+
+`python3 paypal_workbook.py 2026-08` writes `Paypal Reconciliation - {YYYY} {MM}.xlsx` (+ a `.csv` of the All sheet) into the month folder, mirroring the hand-built workbooks.
+
+- **All** sheet — every transaction, oldest first, no fills. **One sheet per currency** (alphabetical after All), holding only the sale rows plus USD's withdrawals, sorted by Description then Date. The General Currency Conversion rows are deliberately **not** on the currency sheets, which is why the check block's conversions figure is a `SUMIFS` against All.
+- **Columns** drop Time Zone / Bank Name / Bank Account / Shipping and Handling / Sales Tax, matching the manual prep.
+- **Fills reflect Xoro, not a re-match:** yellow where the transaction is on one of the month's posted deposits (or, for a withdrawal, has a Fund Transfer), red where it isn't. After creation the rows have left Undeposited Funds, so status is read from the deposits themselves via `paypal_deposits.deposit_status`.
+- **The exchange rate now lives in its own labelled cell** and the formulas reference it, instead of the number being typed into two formulas as `*1.38587` / `/1.38587`.
+- **Verified:** August 2026 — All + CAD/EUR/GBP/USD, 83 rows yellow, 2 red (the two items named in BD057313's memo). No AUD sheet: no AUD activity that month.
+- **Gotcha found:** Xoro's GL names the fund-transfer type **"Transfer Funds"**, not "Fund Transfer" — the duplicate guard matched the wrong string and was silently useless until fixed.
+
 ### Scripted: `paypal_deposits.py`
 
 `python3 paypal_deposits.py 2026-08` dry-runs the month; `--create [--only KEY]` posts. Reads the CSV `paypal_statements.py` filed (or `--api`), tags each transaction with its Shopify store from `custom_field.shop_id`, resolves `invoice_id` → Shopify order → Xoro `ChequeNo`, and builds the three deposits.

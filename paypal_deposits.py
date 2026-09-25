@@ -352,7 +352,9 @@ def existing_transfer(txn):
     x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
     amount = abs(txn.gross)
     for r in x.get_gl_transactions(day, day, account_gl_codes=UMPQUA_USD_ACCT["GLCode"]):
-        if r.get("TxnTypeName") in ("Fund Transfer", "Funds Transfer") \
+        # Xoro names the GL type "Transfer Funds" (not "Fund Transfer") -- matching
+        # the wrong string made this guard silently useless
+        if "transfer" in str(r.get("TxnTypeName") or "").lower() \
                 and abs(Decimal(str(r.get("Amount") or 0))) == amount:
             return r.get("RefNumber") or r.get("TxnNumber")
     return None
@@ -374,6 +376,91 @@ def create_fund_transfers(txns, client=None):
         print("  %s  %s  rate %s  -> %s" % (t.date, abs(t.gross), rate, msg))
         made.append(msg)
     return made
+
+
+def month_deposits(month, client=None):
+    """The PayPal deposits already posted for a month, keyed by deposit kind.
+
+    Found on their deposit-to accounts at month end by the memo the process
+    writes, so the workbook reflects what is actually in Xoro rather than what a
+    fresh matching run would produce (after creation the rows are no longer in
+    Undeposited Funds, so re-matching finds nothing).
+    """
+    client = client or WebMethodClient.from_config()
+    x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
+    day = month_end(month).isoformat()
+    found, seen = {}, set()
+    for gl in ("1145", "1143"):
+        for r in x.get_gl_transactions(day, day, account_gl_codes=gl):
+            rid = r.get("RefId")
+            if r.get("TxnTypeName") != "Bank Deposit" or rid in seen:
+                continue
+            seen.add(rid)
+            d = client.get_bank_deposit(rid)
+            obj = d.get("Data") or d
+            h = obj.get("BankDepositHeaderObj") or {}
+            memo = str(h.get("Memo") or "")
+            if not memo.startswith("PayPal"):
+                continue
+            if "Service Centre" in memo:
+                key = "service_centre"
+            elif "Payout USD" in memo:
+                key = "usd_native"
+            else:
+                key = "combined"
+            found[key] = {
+                "id": rid, "number": h.get("BankDepositNumber"),
+                "total": Decimal(str(h.get("TotalAmount") or 0)),
+                "rate": h.get("ExchangeRate"),
+                "cheques": {str(l.get("ChequeNo")).strip()
+                            for l in (obj.get("BankDepositDetailArr") or [])
+                            if l.get("LinkedFlag")},
+            }
+    return found
+
+
+def deposit_status(month, csv_rows):
+    """What the workbook needs: which transactions landed, which didn't, and totals.
+
+    Returns ``(deposited_ids, missing_ids, totals, rate)``. A sale counts as
+    deposited when its Shopify order number appears on one of the month's
+    deposits; a withdrawal counts when a Fund Transfer exists for its date and
+    amount.
+    """
+    txns = [Txn(transaction_id=r["Transaction ID"],
+                date=r["Date"], currency=r["Currency"], description=r["Description"],
+                gross=Decimal(str(r["Gross "])), fee=Decimal(str(r["Fee "])),
+                invoice_id=(r["Invoice ID"] or "").strip())
+            for r in csv_rows]
+    ids = shop_ids(month)
+    for t in txns:
+        t.shop_id = ids.get(t.transaction_id)
+    by_store = defaultdict(set)
+    for t in txns:
+        if t.description in SALE_DESCRIPTIONS and t.invoice_id:
+            by_store[t.shop_id or US_STORE].add(t.invoice_id)
+    resolved = {}
+    for shop, tokens in by_store.items():
+        if shop in STORE_ENV:
+            resolved.update(shopify_orders(sorted(tokens), shop))
+
+    deposits = month_deposits(month)
+    banked = set()
+    for info in deposits.values():
+        banked |= info["cheques"]
+
+    deposited, missing = set(), set()
+    for t in txns:
+        if t.description in SALE_DESCRIPTIONS:
+            order = resolved.get(t.invoice_id)
+            hit = order and any(f in banked for f in cheque_candidates(order))
+            (deposited if hit else missing).add(t.transaction_id)
+        elif t.description == WITHDRAWAL:
+            (deposited if existing_transfer(t) else missing).add(t.transaction_id)
+
+    totals = {k: v["total"] for k, v in deposits.items()}
+    rate = next((v["rate"] for k, v in deposits.items() if k != "service_centre"), None)
+    return deposited, missing, totals, rate
 
 
 # ---------- report ----------

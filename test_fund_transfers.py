@@ -46,3 +46,12 @@ class Payload(unittest.TestCase):
 
     def test_each_transfer_keeps_its_own_date(self):
         self.assertEqual(build_fund_transfer(wd(24, "-3000.00"), rate="1")["TxnDate"], "8/24/2026")
+
+
+class DuplicateGuardTypeName(unittest.TestCase):
+    def test_xoro_calls_the_gl_type_transfer_funds(self):
+        # the guard must recognise Xoro's actual wording, not the UI's
+        import paypal_deposits, inspect
+        src = inspect.getsource(paypal_deposits.existing_transfer)
+        self.assertIn('"transfer" in str', src)
+        self.assertNotIn('("Fund Transfer", "Funds Transfer")', src)
