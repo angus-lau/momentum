@@ -155,10 +155,11 @@ Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then 
 
 `python3 paypal_workbook.py 2026-08` writes `Paypal Reconciliation - {YYYY} {MM}.xlsx` (+ a `.csv` of the All sheet) into the month folder, mirroring the hand-built workbooks.
 
-- **All** sheet — every transaction, oldest first, no fills. **One sheet per currency** (alphabetical after All), holding only the sale rows plus USD's withdrawals, sorted by Description then Date. The General Currency Conversion rows are deliberately **not** on the currency sheets, which is why the check block's conversions figure is a `SUMIFS` against All.
+- **All** sheet — every transaction in PayPal's own export order (**grouped by currency**, each block oldest-first), no fills. Sorting the All sheet by date across currencies looks reasonable but doesn't match the hand-built files. **One sheet per currency** (alphabetical after All), holding only the sale rows plus USD's withdrawals, sorted by Description then Date. The General Currency Conversion rows are deliberately **not** on the currency sheets, which is why the check block's conversions figure is a `SUMIFS` against All.
 - **Columns** drop Time Zone / Bank Name / Bank Account / Shipping and Handling / Sales Tax, matching the manual prep.
 - **Fills reflect Xoro, not a re-match:** yellow where the transaction is on one of the month's posted deposits (or, for a withdrawal, has a Fund Transfer), red where it isn't. After creation the rows have left Undeposited Funds, so status is read from the deposits themselves via `paypal_deposits.deposit_status`.
 - **The exchange rate now lives in its own labelled cell** and the formulas reference it, instead of the number being typed into two formulas as `*1.38587` / `/1.38587`.
+- **The `.csv` copy** is the All sheet in the same order, no BOM, dates written as datetimes — matching an export-from-Excel of the July file. It is skipped when reading input: only PayPal's own `…-CSR-…​.CSV` is read, or a re-run would consume its own output.
 - **Verified:** August 2026 — All + CAD/EUR/GBP/USD, 83 rows yellow, 2 red (the two items named in BD057313's memo). No AUD sheet: no AUD activity that month.
 - **Gotcha found:** Xoro's GL names the fund-transfer type **"Transfer Funds"**, not "Fund Transfer" — the duplicate guard matched the wrong string and was silently useless until fixed.
 

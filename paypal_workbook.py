@@ -8,7 +8,8 @@ Usage:
 
 Layout copied from `Paypal Reconciliation - 2026 07.xlsx`:
 
-* **All** — every transaction, oldest first, no fills.
+* **All** — every transaction in PayPal's own export order (grouped by currency,
+  each block oldest-first), no fills.
 * **One sheet per currency** (alphabetical after All) — only the sale rows
   (Express Checkout Payment / Payment Refund) plus USD's User Initiated
   Withdrawals. The General Currency Conversion rows are **not** carried onto the
@@ -59,9 +60,13 @@ CURRENCY_SHEET_DESCRIPTIONS = SALE_DESCRIPTIONS | {WITHDRAWAL}
 def read_rows(month):
     """The month's CSV as dicts, dropping the columns the manual prep drops."""
     folder = pps.month_folder(month)
-    files = sorted(f for f in os.listdir(folder) if f.upper().endswith(".CSV"))
+    # only PayPal's own export ("<account>-CSR-<from>-<to>-<generated>.CSV") -- the
+    # workbook writes its own .csv into this folder, which must not be read back in
+    files = sorted(f for f in os.listdir(folder)
+                   if f.upper().endswith(".CSV") and "-CSR-" in f.upper())
     if not files:
-        raise SystemExit("no CSV in %s — run paypal_statements.py %s first" % (folder, month))
+        raise SystemExit("no PayPal export CSV in %s — run paypal_statements.py %s first"
+                         % (folder, month))
     path = os.path.join(folder, files[-1])
     out = []
     with open(path, encoding="utf-8-sig") as f:
@@ -85,8 +90,13 @@ def read_rows(month):
     return out, path
 
 
-def sort_key_all(row):
-    return (row["Date"], row["Time"])
+def all_sheet_rows(rows):
+    """The All sheet keeps PayPal's own export order — currency-grouped, each block
+    oldest-first — which is how the hand-built workbooks have it. ``read_rows``
+    preserves the CSV order, so this is just identity; kept explicit so the intent
+    survives, since sorting by date across currencies looks plausible but is wrong.
+    """
+    return list(rows)
 
 
 def sort_key_currency(row):
@@ -197,7 +207,7 @@ def build(month, out_dir=None):
     wb = openpyxl.Workbook()
     ws_all = wb.active
     ws_all.title = "All"
-    _write_sheet(ws_all, sorted(rows, key=sort_key_all))
+    _write_sheet(ws_all, all_sheet_rows(rows))
 
     currencies = sorted({r["Currency"] for r in rows if r["Description"] in CURRENCY_SHEET_DESCRIPTIONS})
     for cur in currencies:
@@ -219,11 +229,14 @@ def build(month, out_dir=None):
     print("wrote %s" % xlsx)
 
     csv_path = os.path.join(folder, name + ".csv")
-    with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+    # matches the exported-from-Excel copy: no BOM, dates as datetimes
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
-        for row in sorted(rows, key=sort_key_all):
-            w.writerow(row)
+        for row in all_sheet_rows(rows):
+            out = dict(row)
+            out["Date"] = datetime.datetime.combine(row["Date"], datetime.time()).isoformat(sep=" ")
+            w.writerow(out)
     print("wrote %s" % csv_path)
 
     yellow = sum(1 for v in fills.values() if v is YELLOW)
