@@ -5,6 +5,7 @@ PayPal month -> the three Xoro bank deposits (+ the withdrawals that become Fund
 Usage:
     python3 paypal_deposits.py 2026-08              # dry-run: show what would be booked
     python3 paypal_deposits.py 2026-08 --create     # create the deposits
+    python3 paypal_deposits.py 2026-08 --create --transfers   # the withdrawals as Fund Transfers
 
 Reads the month's transactions (the CSV `paypal_statements.py` files, or the API with
 ``--api``), resolves each sale to its Shopify order and then to a Xoro undeposited
@@ -42,7 +43,7 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 
 import paypal_statements as pps
-from xoro_api import exchange_rate_for
+from xoro_api import XoroClient, exchange_rate_for
 from xoro_webmethods import WebMethodClient
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -308,6 +309,73 @@ def build_deposit_obj(key, r):
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": lines}, hold_fee
 
 
+# ---------- fund transfers ----------
+
+PAYPAL_USD_ACCT = {"Id": "B7D04105A81AC13AE701924645D2", "Name": "1143 - Paypal USD", "CurrencyId": 1001}
+UMPQUA_USD_ACCT = {"Id": "B7D04105A81AED1CB3EA3AB9426A", "Name": "1140 - Umpqua Bank 1729 (USD)",
+                   "CurrencyId": 1001, "GLCode": "1140"}
+TRANSFER_MEMO = "PayPal -> Umpqua"
+
+
+def withdrawals_for(txns):
+    """The ``User Initiated Withdrawal`` rows — PayPal sweeping cash to the bank."""
+    return [t for t in txns if t.description == WITHDRAWAL]
+
+
+def build_fund_transfer(txn, rate):
+    """The flat ``fundTransferObjJson`` payload for one withdrawal.
+
+    PayPal reports a withdrawal as negative (money leaving PayPal); the transfer
+    itself carries the positive amount, with direction given by the from/to
+    accounts. Shape captured from a live browser save — see ``XORO_API.md``.
+    """
+    amount = abs(txn.gross)
+    return {
+        "Id": -1, "TxnId": None, "TxnNumber": -1,
+        "TxnDate": txn.date.strftime("%-m/%-d/%Y"),
+        "FundTransferNumber": None, "HomeCurrencyId": 1,
+        "TransferFromAccntName": PAYPAL_USD_ACCT["Name"],
+        "TransferFromAccntId": PAYPAL_USD_ACCT["Id"],
+        "TransferFromAccntCurrencyId": PAYPAL_USD_ACCT["CurrencyId"],
+        "TransferToAccntName": UMPQUA_USD_ACCT["Name"],
+        "TransferToAccntId": UMPQUA_USD_ACCT["Id"],
+        "TransferToAccntCurrencyId": UMPQUA_USD_ACCT["CurrencyId"],
+        "TransferAmount": "%.2f" % amount, "FinalTransferAmount": float(amount),
+        "CurrencyId": "1001", "CurrencyCode": "USD",
+        "ExchangeRate": str(rate), "Memo": TRANSFER_MEMO,
+    }
+
+
+def existing_transfer(txn):
+    """True when a Fund Transfer for this date and amount is already on 1140."""
+    day = txn.date.isoformat()
+    x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
+    amount = abs(txn.gross)
+    for r in x.get_gl_transactions(day, day, account_gl_codes=UMPQUA_USD_ACCT["GLCode"]):
+        if r.get("TxnTypeName") in ("Fund Transfer", "Funds Transfer") \
+                and abs(Decimal(str(r.get("Amount") or 0))) == amount:
+            return r.get("RefNumber") or r.get("TxnNumber")
+    return None
+
+
+def create_fund_transfers(txns, client=None):
+    client = client or WebMethodClient.from_config()
+    made = []
+    for t in sorted(withdrawals_for(txns), key=lambda t: t.date):
+        dup = existing_transfer(t)
+        if dup:
+            print("  %s  %s  already exists (%s) — skipped" % (t.date, abs(t.gross), dup))
+            continue
+        # both sides are USD so the rate only states the CAD value; on a tied day
+        # take the lower rather than stopping the run
+        rate = exchange_rate_for(t.date.isoformat(), "USD", on_tie="lowest")
+        env = client.create_fund_transfer(build_fund_transfer(t, rate))
+        msg = env.get("Message") if isinstance(env, dict) else env
+        print("  %s  %s  rate %s  -> %s" % (t.date, abs(t.gross), rate, msg))
+        made.append(msg)
+    return made
+
+
 # ---------- report ----------
 
 def build(month, use_api=False):
@@ -375,7 +443,7 @@ def build(month, use_api=False):
     return report, withdrawals, conversions, txns
 
 
-def main(month, use_api=False, create=False, only=None):
+def main(month, use_api=False, create=False, only=None, transfers=False):
     report, withdrawals, conversions, txns = build(month, use_api=use_api)
     for key, r in report.items():
         print("\n=== %s → %s (header %s) ===" % (key, r["account"]["Name"], r["header_currency"]))
@@ -414,6 +482,10 @@ def main(month, use_api=False, create=False, only=None):
         return
 
     client = WebMethodClient.from_config()
+    if transfers:
+        print("\ncreating Fund Transfers 1143 -> 1140:")
+        create_fund_transfers(txns, client)
+        return
     for key, r in report.items():
         if only and key != only:
             continue
@@ -439,4 +511,5 @@ if __name__ == "__main__":
     if len(args) != 1 or (only and only not in DEPOSITS):
         print(__doc__)
         sys.exit(1)
-    main(args[0], use_api="--api" in argv, create="--create" in argv, only=only)
+    main(args[0], use_api="--api" in argv, create="--create" in argv, only=only,
+         transfers="--transfers" in argv)

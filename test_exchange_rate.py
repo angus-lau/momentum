@@ -31,6 +31,16 @@ class PickRate(unittest.TestCase):
             pick_rate(rows, "USD")
         self.assertIn("tied", str(cm.exception))
 
+    def test_tie_can_be_resolved_to_the_lowest_on_request(self):
+        rows = [row("x (USD)", 100, 139.315) for _ in range(3)]
+        rows += [row("y (USD)", 100, 139.545) for _ in range(3)]
+        self.assertEqual(pick_rate(rows, "USD", on_tie="lowest"), 1.39315)
+
+    def test_on_tie_does_not_change_a_clear_winner(self):
+        rows = [row("x (USD)", 100, 139.105) for _ in range(5)]
+        rows += [row("y (USD)", 100, 139.545)]
+        self.assertEqual(pick_rate(rows, "USD", on_tie="lowest"), 1.39105)
+
     def test_no_postings_raises(self):
         with self.assertRaises(AmbiguousRate):
             pick_rate([row("BMO (CAD)", 100, 100)], "USD")

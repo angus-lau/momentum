@@ -377,6 +377,23 @@ class WebMethodClient:
 
     # ---- bank deposits (BankDepositWebMethods) ------------------------
 
+    # ---- fund transfers (FundTransferWebMethods) ----------------------
+
+    def create_fund_transfer(self, transfer_obj):
+        """Move money between two of the company's own bank accounts.
+
+        Flat payload (no header/line nesting), double-encoded like the other
+        writes. Returns the Xoro envelope; ``Message`` reads
+        ``"Funds transfer record FT###### created Successfully !"`` on success.
+        """
+        return self.call("FundTransferWebMethods", "createFundTransfer",
+                         fundTransferObjJson=json.dumps(transfer_obj))
+
+    def void_fund_transfer(self, fund_transfer_id):
+        """Delete a fund transfer. The parameter really is ``fundTransferId``."""
+        return self.call("FundTransferWebMethods", "voidFundTransfer",
+                         fundTransferId=fund_transfer_id)
+
     def get_undeposited_transactions(self, currency_id, *, size=3000):
         """Undeposited payment rows for a currency (each keyed by ``ChequeNo``).
 

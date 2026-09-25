@@ -260,7 +260,7 @@ class AmbiguousRate(Exception):
     """More than one rate is equally common that day — the caller must choose."""
 
 
-def pick_rate(gl_rows, currency_code, home_currency="CAD"):
+def pick_rate(gl_rows, currency_code, home_currency="CAD", on_tie=None):
     """Xoro's exchange rate for ``currency_code`` implied by a day's GL rows.
 
     Each posting carries ``AmountHomeCurrency / Amount`` — the rate applied when
@@ -269,8 +269,11 @@ def pick_rate(gl_rows, currency_code, home_currency="CAD"):
     currency (an account name ends with "(USD)"), because mixing EUR/GBP postings
     in produces a meaningless average.
 
-    Returns 1 when the currency *is* the home currency. Raises AmbiguousRate when
-    the top two counts tie, rather than silently picking one.
+    Returns 1 when the currency *is* the home currency. When the top two counts
+    tie it raises AmbiguousRate, unless ``on_tie="lowest"`` — a tie is a real
+    ambiguity, so resolving it has to be a deliberate choice by the caller. The
+    spread between tied rates is tiny and does not affect the transaction-currency
+    amount, only its stated home-currency value.
     """
     if currency_code == home_currency:
         return 1
@@ -289,15 +292,18 @@ def pick_rate(gl_rows, currency_code, home_currency="CAD"):
         raise AmbiguousRate("no %s postings to derive a rate from" % currency_code)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
     if len(ranked) > 1 and ranked[0][1] == ranked[1][1]:
+        if on_tie == "lowest":
+            return min(r for r, n in ranked if n == ranked[0][1])
         raise AmbiguousRate(
             "%s rate is tied that day: %s and %s both appear %d times"
             % (currency_code, ranked[0][0], ranked[1][0], ranked[0][1]))
     return ranked[0][0]
 
 
-def exchange_rate_for(date, currency_code, client=None, home_currency="CAD"):
+def exchange_rate_for(date, currency_code, client=None, home_currency="CAD", on_tie=None):
     """``pick_rate`` for a ``YYYY-MM-DD`` date, fetching that day's GL."""
     if currency_code == home_currency:
         return 1
     client = client or XoroClient()
-    return pick_rate(list(client.get_gl_transactions(date, date)), currency_code, home_currency)
+    return pick_rate(list(client.get_gl_transactions(date, date)), currency_code,
+                     home_currency, on_tie=on_tie)
