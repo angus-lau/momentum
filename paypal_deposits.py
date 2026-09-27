@@ -651,6 +651,61 @@ def build_closing_fx_transfer(month, amount, rate):
     }
 
 
+# ---------- bridging-account check ----------
+
+BRIDGE_TOLERANCE = Decimal("0.05")
+
+
+def bridge_rows(gl_rows):
+    """The 1145 legs of a GL result, de-duplicated.
+
+    Xoro names the account "1145 - Temporary Bank Account (CAD)" on a deposit but
+    plain "Temporary Bank Account (CAD)" on a fund transfer, so match on the name
+    rather than the code prefix.
+    """
+    out, seen = [], set()
+    for r in gl_rows:
+        if "Temporary Bank Account" not in (r.get("F_AccountingName") or ""):
+            continue
+        key = (r.get("TxnNumber"), str(r.get("Amount")), r.get("TxnDate"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out
+
+
+def bridge_residual(gl_rows):
+    """What the month leaves behind on 1145, in home currency (CAD).
+
+    The month's deposits go in and the closing FX transfer takes them out, so this
+    should be ~0: the bridge is meant to empty every month. Summed in home currency
+    because the account holds both CAD and USD deposits.
+    """
+    return sum((Decimal(str(r["AmountHomeCurrency"])) for r in bridge_rows(gl_rows)), Decimal(0))
+
+
+def check_bridge_cleared(month, tolerance=BRIDGE_TOLERANCE, client=None):
+    """Assert the month's PayPal activity leaves the bridging account empty.
+
+    Returns ``(residual, ok)``. A non-zero residual means the closing transfer did
+    not cover the month's deposits -- Jan/Mar/May 2026 each left several hundred
+    dollars stranded this way, which is why this is checked every month.
+    """
+    x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
+    start = datetime.date(int(month[:4]), int(month[5:7]), 1).isoformat()
+    rows = bridge_rows(x.get_gl_transactions(start, month_end(month).isoformat(),
+                                             account_gl_codes="1145"))
+    residual = bridge_residual(rows)
+    ok = abs(residual) <= tolerance
+    print("  1145 bridging account, %s: %d movement(s), residual %s CAD  %s"
+          % (month, len(rows), residual, "OK" if ok else "!! NOT CLEARED"))
+    for r in sorted(rows, key=lambda r: str(r.get("RefNumber") or "")):
+        print("      %-10s %12s  home %12s" % (r.get("RefNumber") or r.get("TxnNumber"),
+                                               r["Amount"], r["AmountHomeCurrency"]))
+    return residual, ok
+
+
 # ---------- report ----------
 
 def build(month, use_api=False):
@@ -751,6 +806,12 @@ def main(month, use_api=False, create=False, only=None, transfers=False):
         print("    PayPal month-end balance: %s" % ", ".join("%s %s" % (c, v) for c, v in bal.items() if v))
     except Exception as e:                                      # noqa: BLE001
         print("    (balance lookup failed: %s)" % e)
+
+    print("\n=== bridging account ===")
+    try:
+        check_bridge_cleared(month)
+    except Exception as e:                                      # noqa: BLE001
+        print("  (bridge check failed: %s)" % e)
 
     if not create:
         print("\nDry run — nothing created.")

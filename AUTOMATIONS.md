@@ -233,6 +233,15 @@ Lines:
 3. **One line per "User Initiated Withdrawal"** row on the USD sheet — each keeps **its own actual date and amount** (negative/debit), not end-of-month like the two rows above
 - **Verified:** July 2026 — 8 lines posted to account 1143 ($13,133.71 + $9,160.00 + six withdrawals), Xoro confirmed `"8 transaction(s) imported successfully"`.
 
+### Month-end check: the 1145 bridging account must clear
+
+`paypal_deposits.check_bridge_cleared(month)` — run automatically at the end of every `paypal_deposits.py` run. The month's two deposits go into 1145 and the closing FX transfer takes them out, so the month's movements should net to **0 ± 0.05 CAD** in home currency (the account holds both CAD and USD deposits, so the check has to be in CAD).
+
+- It ties back to the workbook: the closing transfer is E82, and E82 = E83 + E84 is exactly what makes the bridge empty — so a non-zero residual here and a non-zero "Difference" cell are the same problem seen from two sides.
+- Match the account by **name**, not code: Xoro writes "1145 - Temporary Bank Account (CAD)" on a deposit but plain "Temporary Bank Account (CAD)" on a fund transfer.
+- **Why it matters:** 1145 carries a standing **1,532.25 CAD** from months where the transfer didn't cover the full amount — **Jan 2026 +6.47**, **Mar 2026 +857.71**, **May 2026 +668.06**. Every other month cleared to under a cent. Those three predate this automation and are still stranded.
+- **Verified:** Aug 2026 +0.0030, Jul +0.0046, Feb/Apr/Jun all within 0.005; Mar and May correctly flagged `!! NOT CLEARED`.
+
 ### Final step: Fund Transfer 1145 → 1143
 
 Once all three bank deposits are done for the month, transfer the "USD Equivalent Conversions" amount out of the bridging account into PayPal USD proper: **Fund Transfer from 1145 - Temporary Bank Account (CAD) to 1143 - Paypal USD**, dated the last day of the working month, using that same month's real posted exchange rate (not hardcoded — see the exchange-rate lesson above).
