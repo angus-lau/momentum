@@ -425,11 +425,17 @@ def retry_bank_deposit(bank_deposit_id, store, client=None):
             "still_missing": still_missing, "updated": True, "new_total": header["TotalAmount"]}
 
 
-def retry_open_deposits(store, client=None):
-    """Sweep every open (short) deposit for ``store`` and top up what's newly available."""
+def retry_open_deposits(store, client=None, days=120):
+    """Sweep every open (short) deposit for ``store`` and top up what's newly available.
+
+    ``days`` is the lookback for finding short deposits. It defaults well beyond a
+    month because orders can take weeks to appear: a 45-day default silently
+    skipped deposits dated 08/06-08/12 when swept on 09/27, leaving them short
+    with no indication they had been passed over.
+    """
     client = client or WebMethodClient.from_config()
     results = []
-    for o in find_open_deposits(store, client=client):
+    for o in find_open_deposits(store, days=days, client=client):
         r = retry_bank_deposit(o["bank_deposit_id"], store, client=client)
         r["bd_number"] = o["bd_number"]
         results.append(r)
@@ -442,8 +448,9 @@ if __name__ == "__main__":
 
     if argv and argv[0] == "--retry":
         store = argv[1] if len(argv) > 1 else DEFAULT_STORE
-        print("=== RETRY: topping up open deposits for %s ===" % STORES[store]["label"])
-        results = retry_open_deposits(store)
+        days = int(argv[2]) if len(argv) > 2 else 120
+        print("=== RETRY: topping up open deposits for %s (last %d days) ===" % (STORES[store]["label"], days))
+        results = retry_open_deposits(store, days=days)
         if not results:
             print("no open (short) deposits found")
         for r in results:
