@@ -587,6 +587,70 @@ def deposit_status(month, csv_rows):
     return deposited, missing, totals, rate
 
 
+# ---------- 1143 statement and the closing FX transfer ----------
+
+PAYPAL_USD_FID = "B7D04105A81AC13AE701924645D2"     # 1143, for bank-statement upload
+
+
+def usd_sheet_totals(txns):
+    """The USD sheet's own figures: (gross sales, fees, refunds, deposits-net).
+
+    ``deposits-net`` is the workbook's "Deposits in USD, MINUS refunds, MINUS
+    fees" — the first line of the 1143 statement.
+    """
+    usd = [t for t in txns if t.currency == "USD"]
+    sales = sum((t.gross for t in usd if t.description == "Express Checkout Payment"), Decimal(0))
+    fees = sum((t.fee for t in usd), Decimal(0))
+    refunds = sum((t.gross for t in usd if t.description == "Payment Refund"), Decimal(0))
+    return sales, fees, refunds, sales + fees + refunds
+
+
+def build_1143_statement(month, txns=None):
+    """The statement lines for 1143, in the order the manual file uses.
+
+    Two month-end lines — the USD sheet's net deposits and the USD Equivalent
+    Conversions total (the USD figure, not its CAD conversion; 1143 is USD) —
+    then one line per withdrawal keeping its own date and negative amount.
+    """
+    txns = txns if txns is not None else load_csv(month)[0]
+    date = month_end(month)
+    end = date.strftime("%-m/%-d/%Y")
+    _sales, _fees, _refunds, net = usd_sheet_totals(txns)
+    conversions = sum((t.gross for t in txns
+                       if t.currency == "USD" and t.description == CONVERSION), Decimal(0))
+    lines = [
+        {"date": end, "amount": float(net), "payee": "Deposits in USD, MINUS refunds, MINUS fees",
+         "description": "", "reference": "", "cheque": ""},
+        {"date": end, "amount": float(conversions), "payee": "USD Equivalent Conversions",
+         "description": "", "reference": "", "cheque": ""},
+    ]
+    for t in sorted(withdrawals_for(txns), key=lambda t: t.date):
+        lines.append({"date": t.date.strftime("%-m/%-d/%Y"), "amount": float(t.gross),
+                      "payee": WITHDRAWAL, "description": WITHDRAWAL,
+                      "reference": "", "cheque": ""})
+    return lines
+
+
+def build_closing_fx_transfer(month, amount, rate):
+    """1145 -> 1143 for the month's USD Equivalent Conversions.
+
+    Specified in **USD** (the destination is USD-native) and Xoro computes the
+    CAD side from the rate — stating it in CAD gets the direction backwards.
+    """
+    return {
+        "Id": -1, "TxnId": None, "TxnNumber": -1,
+        "TxnDate": month_end(month).strftime("%-m/%-d/%Y"),
+        "FundTransferNumber": None, "HomeCurrencyId": 1,
+        "TransferFromAccntName": BRIDGE["Name"], "TransferFromAccntId": BRIDGE["Id"],
+        "TransferFromAccntCurrencyId": 1,
+        "TransferToAccntName": PAYPAL_USD_ACCT["Name"], "TransferToAccntId": PAYPAL_USD_ACCT["Id"],
+        "TransferToAccntCurrencyId": 1001,
+        "TransferAmount": "%.2f" % amount, "FinalTransferAmount": float(amount),
+        "CurrencyId": "1001", "CurrencyCode": "USD",
+        "ExchangeRate": str(rate), "Memo": "PayPal -> Umpqua FX transfer",
+    }
+
+
 # ---------- report ----------
 
 def build(month, use_api=False):
