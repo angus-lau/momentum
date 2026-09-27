@@ -71,11 +71,13 @@
   "bmo": {
     "skip_rows": 6,
     "has_header": true,
-    "date_col": 2,
-    "desc_col": 4,
-    "amount_type": "single",
-    "amount_col": 3,
-    "negate": false
+    "date_col": 1,
+    "desc_col": 2,
+    "amount_type": "split",
+    "debit_col": 3,
+    "credit_col": 4,
+    "balance_pattern": "#\\d{8}-\\d{3}\\s+[\\d,]+\\.\\d{2}\\s+[\\d,]+\\.\\d{2}\\s+[\\d,]+\\.\\d{2}\\s+(-?[\\d,]+\\.\\d{2})",
+    "date_pattern": "For the period ending ([A-Za-z]+ \\d{1,2}, \\d{4})"
   },
   "umpqua": {
     "has_header": true,

@@ -261,6 +261,19 @@ Scripted up to opening the reconciliation; the line matching and finishing stay 
 - **Verified:** August 2026 — rec **982** finished, difference 0.00, 2 deposits + 7 payments cleared, closing 2,548.06 carried into September.
 - `finishBankRec` / `reconcileBankAccountLine` are still uncaptured, so automating the matching itself would need a live UI capture first.
 
+## ✅ BMO CAD / USD Statements
+
+Files the monthly BMO export + statement and posts the statement to Xoro (1160 CAD / 1170 USD), opening the reconciliation.
+
+- **Folder:** `Bank Reconciliations/FY{fy}/BMO CAD|BMO USD/{YY MM}/` — the statement PDF as `{account}.{YYYY-MM-DD}.pdf`, the raw export as `export.csv`, plus the generated `BankStatementImport.csv`.
+- **Run:** `statement_pipeline.upload_statement("bmo_cad"|"bmo_usd", export_csv, statement_pdf, commit=True, start_reconcile=True)`.
+- **The two accounts run on different statement cycles** — CAD ends at month end (Aug 31), USD does not (Aug 7, then Sep 4) — so the folder is the month the period *starts* in, and both live under the same `{YY MM}`.
+- **Use the Value Date, not the Posted date** (`date_col: 1`): a charge posted 09/01 but value-dated 08/31 belongs on the August statement. Getting this wrong pushes month-end fees and interest into the next period.
+- **The export's Debit column is positive** in the current format (an older export pre-negated it), so it is read as a `split` debit/credit pair rather than a single signed amount.
+- **Self-check:** the export's debit and credit totals should equal the statement's "Total amounts debited/credited" exactly, and `prior rec beginning balance + net` should equal the statement's closing balance.
+- **⚠️ The `bmo` bank config was wrong** until 2026-09-27 — it read the date from the Description column and the amount from Debit as a single signed value. Same class of bug as `umpqua`; both are fixed.
+- **Verified:** Aug 2026 — CAD 56 lines, debits 181,529.68 / credits 65,299.86, 30,065.81 → **−86,164.01** (rec 983); USD 11 lines, debits 97,750.50 / credits 96,938.74, 2,363.95 → **1,552.19** (rec 984). Both match their statements to the cent.
+
 ## ✅ Wise Statements
 
 Pulls Wise (CAD/EUR/GBP) balance statements for a given month and drops PDF + CSV straight into the OneDrive bank-reconciliation tree — only for currencies that actually had activity that month.

@@ -1,7 +1,6 @@
 {
   "base_path": "/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/Accounting Docs/CC Expenses",
   "filename": "BankStatementImport.csv",
-
   "accounts": {
     "boa": {
       "search": "Bank of America",
@@ -46,11 +45,13 @@
     },
     "bmo_cad": {
       "search": "BMO 41547651",
-      "option": "1160 - BMO 41547651 (CAD)"
+      "option": "1160 - BMO 41547651 (CAD)",
+      "bank_config": "bmo"
     },
     "bmo_usd": {
       "search": "BMO 44569097",
-      "option": "1170 - BMO 44569097 (USD)"
+      "option": "1170 - BMO 44569097 (USD)",
+      "bank_config": "bmo"
     },
     "umpqua": {
       "search": "Umpqua",
