@@ -474,6 +474,8 @@ def month_deposits(month, client=None):
                 "cheques": {str(l.get("ChequeNo")).strip()
                             for l in (obj.get("BankDepositDetailArr") or [])
                             if l.get("LinkedFlag")},
+                "lines": [l for l in (obj.get("BankDepositDetailArr") or [])
+                          if l.get("LinkedFlag")],
             }
     return found
 
@@ -508,14 +510,56 @@ def deposit_status(month, csv_rows):
     for info in deposits.values():
         banked |= info["cheques"]
 
+    # every deposit line, so an unresolvable transaction can still be recognised
+    all_lines = []
+    for info in deposits.values():
+        all_lines.extend(info["lines"])
+    unconsumed = list(all_lines)          # lines no transaction has claimed yet
+
+    def claim_by_order(order):
+        hit = False
+        for l in list(unconsumed):
+            if str(l.get("ChequeNo")).strip() in cheque_candidates(order):
+                unconsumed.remove(l)
+                hit = True
+        return hit
+
+    def claim_by_amount(txn):
+        """Exact same-currency amount match — safe only within one currency, since a
+        EUR receipt is held in Xoro at its USD value."""
+        want = round(txn.gross, 2)
+        for l in unconsumed:
+            if round(Decimal(str(l.get("Amount") or 0)), 2) == want:
+                unconsumed.remove(l)
+                return True
+        return False
+
     deposited, missing = set(), set()
+    unresolved = []
     for t in txns:
         if t.description in SALE_DESCRIPTIONS:
             order = resolved.get(t.invoice_id)
-            hit = order and any(f in banked for f in cheque_candidates(order))
-            (deposited if hit else missing).add(t.transaction_id)
+            if order and any(f in banked for f in cheque_candidates(order)) and claim_by_order(order):
+                deposited.add(t.transaction_id)
+            elif claim_by_amount(t):
+                # refunds of orders sold in earlier months don't resolve: the token
+                # isn't indexed by Shopify search and the parent payment isn't in
+                # this month's data
+                deposited.add(t.transaction_id)
+            else:
+                unresolved.append(t)
         elif t.description == WITHDRAWAL:
             (deposited if existing_transfer(t) else missing).add(t.transaction_id)
+
+    # One leftover on each side is that pair: the deposit holds a line nothing
+    # explains, and one transaction matched no line.
+    if len(unresolved) == 1 and len(unconsumed) == 1:
+        deposited.add(unresolved[0].transaction_id)
+        print("  paired the unexplained deposit line (ChequeNo %s) with the one "
+              "unresolvable transaction (%s)"
+              % (str(unconsumed[0].get("ChequeNo")).strip(), unresolved[0].transaction_id))
+    else:
+        missing |= {t.transaction_id for t in unresolved}
 
     totals = {k: v["total"] for k, v in deposits.items()}
     rate = next((v["rate"] for k, v in deposits.items() if k != "service_centre"), None)
