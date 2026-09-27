@@ -47,6 +47,8 @@ SHOPIFY_API_VERSION = "2026-01"
 STORES = {
     "momentum": {  # momentum-watch-teifi-digital  (USD payouts)
         "label": "Momentum Watch (US)",
+        # matches how the payout lands on the bank statement ("Shopify Consolid TRANSFER")
+        "memo": "shopify consolidated",
         "store_env": "SHOPIFY_STORE",          # .env key holding the *.myshopify.com domain
         "token_env": "SHOPIFY_ADMIN_TOKEN",    # .env key holding the shpat_ Admin API token
         "accounts": {
@@ -62,6 +64,8 @@ STORES = {
     },
     "service_center": {  # ca-momentumwatch  "Momentum Watches Service Center" (CAD payouts)
         "label": "Momentum Watches Service Center (CAD)",
+        # these land as "SHOPIFY SC-SHOP MSP/DIV" -- not the US store's "consolidated"
+        "memo": "shopify service centre",
         "store_env": "SHOPIFY_STORE_2",        # ca-momentumwatch.myshopify.com
         "token_env": "SHOPIFY_ADMIN_TOKEN_2",  # shpat_ token (same app, minted via `shopify_oauth.py _2`)
         "accounts": {
@@ -80,6 +84,12 @@ DEFAULT_STORE = "momentum"
 
 CURRENCY_ID = {"USD": 1001, "CAD": 1}
 ADJ_STORE_ID = 10001
+
+
+def _store_memo(store):
+    """The deposit memo for a store. The two stores' payouts arrive under different
+    descriptions on their respective bank statements, so they must not share one."""
+    return STORES[store].get("memo", "shopify consolidated")
 
 
 def _store_accounts(store, currency):
@@ -261,7 +271,7 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1", store=DEFAULT_STO
         # means the deposit is short of the payout -> flag ERROR in the memo for review.
         # Comma-joined (not space) so retry_bank_deposit can parse it back out reliably --
         # individual entries like "shopify_id:X(refund -1.23)" contain internal spaces.
-        "Memo": "shopify consolidated" + (" - ERROR: " + ",".join(missing) if missing else ""),
+        "Memo": _store_memo(store) + (" - ERROR: " + ",".join(missing) if missing else ""),
     }
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": matched}, matched, missing
 
@@ -407,7 +417,7 @@ def retry_bank_deposit(bank_deposit_id, store, client=None):
         row["LineNumber"] = i
         lines.append(row)
 
-    header["Memo"] = "shopify consolidated" + (" - ERROR: " + ",".join(still_missing) if still_missing else "")
+    header["Memo"] = _store_memo(store) + (" - ERROR: " + ",".join(still_missing) if still_missing else "")
     header["TotalAmount"] = round(sum(l["Amount"] for l in lines), 2)
 
     client.update_bank_deposit({"BankDepositHeaderObj": header, "BankDepositDetailArr": lines})
