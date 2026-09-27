@@ -118,7 +118,7 @@ Replaces the manual "download the monthly activity CSV from PayPal's reports UI"
 - **`month_end_balances(month)`** wraps `/v1/reporting/balances` — the 1143 reconciliation's ending balance straight from PayPal (Aug 2026: USD 2,548.06), instead of reading it off the last transaction row.
 - **For the reconciliation itself**, the API also carries two things the CSV doesn't: `custom_field.shop_id` (which Shopify store an order belongs to — the deposit split is by store, so this removes the documented "check both stores" ambiguity) and a structured `transaction_event_code`. `invoice_id` (the Shopify order token) is in **both** the CSV and the API.
 
-## 🔄 PayPal Payout Reconciliation (deposits scripted; Fund Transfers, 1143 statement and workbook still manual)
+## ✅ PayPal Payout Reconciliation (scripted end to end except the rec's line matching)
 
 Turns a monthly PayPal CSV export into per-currency reconciliation sheets, then matches each transaction to a Shopify order and books it into a Xoro bank deposit. Currently run step-by-step via ad hoc scripts in a scratch folder — not yet consolidated into a repo script.
 
@@ -242,12 +242,15 @@ Once all three bank deposits are done for the month, transfer the "USD Equivalen
 - Memo convention: `"PayPal -> Umpqua FX transfer"`.
 - **Verified:** July 2026 — `FT001496`, $9,160.00 CAD from 1145 → $6,609.57 USD into 1143, dated 07/31/2026. Confirmed via GL on account 1143.
 
-### TODO: Bank Reconciliation for account 1143
+### Bank Reconciliation for account 1143
 
-Once the bank statement is uploaded, the last remaining step each month is to actually **Bank Reconcile** account 1143 in Xoro — not yet built or attempted.
+Scripted up to opening the reconciliation; the line matching and finishing stay manual, the same boundary as the credit cards.
 
-- **Setup only is automated:** `xoro_webmethods.WebMethodClient.start_reconciliation` → `BankReconcileWebMethods.addBankRecHeader` creates the reconciliation with a beginning/ending balance and statement date. Ending balance = PayPal's own last-reported `Balance` for the month (the USD sheet's last real transaction row before month-end — July 2026 was $1,319.11, dated 7/29 since PayPal had no activity 7/30–31).
-- **Line-by-line matching and finishing it is completely unexplored** — `finishBankRec`, `reconcileBankAccountLine`, `reconcileMultipleBankAccountLine`, `getBankTransactionsToReconcile` (all on `BankReconcileWebMethods`/`ConnectBankWebMethods`) exist per the service listing but have never been called or captured from a live UI flow in this codebase. Given how differently Fund Transfer's real payload shape turned out from a first guess, expect the same here — plan to capture a live browser save (same method used to crack Fund Transfer) rather than guessing the shape blind.
+- **Automated:** `create_bank_statement` posts the 9-line statement, then `start_reconciliation` opens the rec with PayPal's own month-end balance as the ending balance (from `/v1/reporting/balances`, not read off the last transaction row).
+- **Manual:** ticking the lines and finishing. The month's statement lines map 1:1 onto Xoro transactions, so it is a straight tick-through — August's nine were BD057314, FT001511 and FT001504–FT001510.
+- **Worth knowing about the tie-out:** clearing the rec to zero is partly circular, because the ending balance is derived from the same statement lines. The genuinely independent check is that PayPal's own reported month-end balance equals the balance implied by the deposits and transfers built separately from it — if a deposit were wrong, those two would diverge.
+- **Verified:** August 2026 — rec **982** finished, difference 0.00, 2 deposits + 7 payments cleared, closing 2,548.06 carried into September.
+- `finishBankRec` / `reconcileBankAccountLine` are still uncaptured, so automating the matching itself would need a live UI capture first.
 
 ## ✅ Wise Statements
 
