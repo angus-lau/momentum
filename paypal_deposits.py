@@ -381,10 +381,19 @@ def create_fund_transfers(txns, client=None):
 def finalize_combined_fee(month, client=None, dry_run=True):
     """Add the combined deposit's fee line, once its orders are all in.
 
-    The process deliberately leaves this until last: orders trickle in over
-    several passes, and the fee is summed over whatever is actually sitting in
-    the deposit at that point — not over what was matched on the first run.
-    Also drops the ``- MISSING:`` note from the memo for anything now present.
+    The fee is the **balancing figure**, not the sum of the PayPal fees on the
+    deposit's transactions: it is whatever makes
+
+        deposit total  ==  USD Equivalent Conversions - (Service Centre deposit / rate)
+
+    i.e. it drives the workbook's "Difference = amount to be posted cc processing
+    fees" cell to zero. It therefore absorbs the FX spread as well — PayPal
+    converts at a worse rate than Xoro's posted one, which for August 2026 was
+    245.37 on top of the 242.41 of PayPal fees.
+
+    Left until last deliberately: orders trickle in over several passes, and the
+    figure depends on what is actually sitting in the deposit at that point. Also
+    drops the ``- MISSING:`` note from the memo.
     """
     client = client or WebMethodClient.from_config()
     deposits = month_deposits(month, client)
@@ -413,16 +422,28 @@ def finalize_combined_fee(month, client=None, dry_run=True):
     for t in txns:
         t.order_number = resolved.get(t.invoice_id)
 
-    present = {str(l.get("ChequeNo")).strip() for l in lines if l.get("LinkedFlag")}
-    inside = [t for t in txns
-              if t.description in SALE_DESCRIPTIONS and t.order_number
-              and any(f in present for f in cheque_candidates(t.order_number))]
-    fee = fee_total(inside)
     header = obj["BankDepositHeaderObj"]
     date = month_end(month)
     txn_date = date.strftime("%-m/%-d/%Y")
-    print("  %s: %d payment line(s), %d PayPal transaction(s) -> fee %s"
-          % (info["number"], len(present), len(inside), fee))
+    rate = Decimal(str(header.get("ExchangeRate") or 1))
+
+    conversions = sum((t.gross for t in txns
+                       if t.currency == "USD" and t.description == CONVERSION), Decimal(0))
+    sc = deposits.get("service_centre")
+    sc_usd = (sc["total"] / rate).quantize(Decimal("0.01")) if sc else Decimal(0)
+    target = conversions - sc_usd
+    gross = sum(Decimal(str(l["Amount"])) for l in lines if l.get("LinkedFlag"))
+    fee = -(gross - target).quantize(Decimal("0.01"))
+
+    paypal_fees = fee_total([t for t in txns
+                             if t.description in SALE_DESCRIPTIONS and t.order_number
+                             and any(f in {str(l.get("ChequeNo")).strip()
+                                           for l in lines if l.get("LinkedFlag")}
+                                     for f in cheque_candidates(t.order_number))])
+    print("  %s: gross %s, conversions %s - SC %s = target %s"
+          % (info["number"], gross, conversions, sc_usd, target))
+    print("  fee %s  (PayPal fees %s + FX spread %s)"
+          % (fee, paypal_fees, (fee - paypal_fees).quantize(Decimal("0.01"))))
     if not fee:
         print("  no fee to add")
         return None
