@@ -378,6 +378,65 @@ def create_fund_transfers(txns, client=None):
     return made
 
 
+def finalize_combined_fee(month, client=None, dry_run=True):
+    """Add the combined deposit's fee line, once its orders are all in.
+
+    The process deliberately leaves this until last: orders trickle in over
+    several passes, and the fee is summed over whatever is actually sitting in
+    the deposit at that point — not over what was matched on the first run.
+    Also drops the ``- MISSING:`` note from the memo for anything now present.
+    """
+    client = client or WebMethodClient.from_config()
+    deposits = month_deposits(month, client)
+    info = deposits.get("combined")
+    if not info:
+        raise SystemExit("no combined deposit found for %s" % month)
+    d = client.get_bank_deposit(info["id"])
+    obj = d.get("Data") or d
+    lines = obj["BankDepositDetailArr"]
+    if any(not l.get("LinkedFlag") for l in lines):
+        print("  %s already has a fee line — nothing to do" % info["number"])
+        return None
+
+    txns, _src = load_csv(month)
+    ids = shop_ids(month)
+    for t in txns:
+        t.shop_id = ids.get(t.transaction_id)
+    by_store = defaultdict(set)
+    for t in txns:
+        if t.description in SALE_DESCRIPTIONS and t.invoice_id:
+            by_store[t.shop_id or US_STORE].add(t.invoice_id)
+    resolved = {}
+    for shop, tokens in by_store.items():
+        if shop in STORE_ENV:
+            resolved.update(shopify_orders(sorted(tokens), shop))
+    for t in txns:
+        t.order_number = resolved.get(t.invoice_id)
+
+    present = {str(l.get("ChequeNo")).strip() for l in lines if l.get("LinkedFlag")}
+    inside = [t for t in txns
+              if t.description in SALE_DESCRIPTIONS and t.order_number
+              and any(f in present for f in cheque_candidates(t.order_number))]
+    fee = fee_total(inside)
+    header = obj["BankDepositHeaderObj"]
+    date = month_end(month)
+    txn_date = date.strftime("%-m/%-d/%Y")
+    print("  %s: %d payment line(s), %d PayPal transaction(s) -> fee %s"
+          % (info["number"], len(present), len(inside), fee))
+    if not fee:
+        print("  no fee to add")
+        return None
+    if dry_run:
+        print("  dry run — pass dry_run=False to apply")
+        return fee
+    lines.append(_fee_line(DEPOSITS["combined"][2], fee, len(lines), txn_date))
+    header["Memo"] = deposit_memo("combined", date, sorted({t.currency for t in txns
+                                                            if classify(t) == "combined"}))
+    client.update_bank_deposit(obj)
+    print("  fee line added; memo reset to: %s" % header["Memo"])
+    return fee
+
+
 def month_deposits(month, client=None):
     """The PayPal deposits already posted for a month, keyed by deposit kind.
 
