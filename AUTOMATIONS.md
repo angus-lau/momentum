@@ -6,7 +6,7 @@ Quick index of the automations that are built, tested, and ready to re-run.
 
 > **Fiscal year folders:** FY ends **July 31**. Month folders live under `CC Expenses/YE <fy>/` and `Bank Reconciliations/FY<fy>/`, where `<fy>` = calendar year for Jan–Jul, calendar year + 1 for Aug–Dec (so `26 07` → YE 2026, `26 08` → YE 2027). Every script derives this from the month (`convert_activity.fiscal_year_end`, `wise_statements.fiscal_year_folder`, `run.sh ye_for_month`) — nothing hardcodes a year.
 
-## 🔄 Ceridian (Dayforce) Payroll Bill
+## ✅ Ceridian (Dayforce) Payroll Bill
 
 Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceridian Corporation — booking wages/CPP/EI by department plus the Dayforce service fee, netted against LTD so the bill balances exactly to the PDF's "Total Payment Due". Built once via browser (no API schema existed for Bill creation), payload now captured for future API-driven runs.
 
@@ -50,7 +50,11 @@ Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceri
 - **Verified:**
   - July 2026 pay period (`20260715.pdf`) — Bill `CA-B002004` created, 11 expense lines (7660, 7840 LTD-only, 9× dept lines), Balance Due $21,506.48, exact match to the PDF's Total Payment Due.
   - July 2026 pay period #2 (`20260731.pdf`) — Bill `CA-B002005` created, 12 expense lines (7660, 7840 = STD+LTD combined, 2900 = SP.DEDNS, 9× dept lines), Balance Due $63,340.66, exact match to the PDF's Total Payment Due. First period to surface STD and SP.DEDNS as line types.
-- **TODO:** switch from browser-driven to `createNewBill` API call directly now that the payload shape is confirmed; generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` source file was found to be a byte-identical duplicate of `20260731.pdf` and needs to be re-saved by the user with the real August 15 data before that period's bill can be built.
+- **Scripted 2026-09-27:** `python3 ceridian_bills.py <pdf> [<pdf> ...] [--create]` — parses the PDF, builds the bill and posts it via `createNewBill`. **It refuses to post unless the lines total the PDF's TOTAL PAYMENT DUE**, which is the whole self-check; a mis-included line can't slip through. Skips a period already posted under the same vendor bill number. 18 unit tests cover the parsing and the line rules.
+- **Pages are found by content, not index.** The docs used to say "Funds Summary p1, Journal Entry p3", but Dayforce sometimes prepends a holiday notice — 20260915 has its Funds Summary on page 2.
+- **Filing is fiscal-year** like everything else (YE2025 = Aug 2024 → Jul 2025), so Aug/Sep 2026 periods go in `Ceridian/YE2027/`.
+- **Verified:** three periods posted 2026-09-27, each balancing to its Total Payment Due and confirmed in the GL — `CA-B002021` 08/15 **20,463.32** (inv 239271-452), `CA-B002022` 08/31 **21,249.52** (245079-453), `CA-B002023` 09/15 **21,201.00** (254038-454). None had STD or SP.DEDNS, so each is LTD-only at −65.22.
+- **TODO:**  generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` duplicate was resolved — the real file was supplied 2026-09-27 and is filed in YE2027. **The bogus copy is still sitting in `Ceridian/YE2026/20260815.pdf`** (md5 `d641e364…`, identical to 20260731.pdf) and is both wrong and misfiled; it should be deleted.
 
 ## ✅ CC 4002 DHL Reconcile (MyBill fetch → parse → two Xoro statements)
 
