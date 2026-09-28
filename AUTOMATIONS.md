@@ -54,7 +54,7 @@ Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceri
 - **Pages are found by content, not index.** The docs used to say "Funds Summary p1, Journal Entry p3", but Dayforce sometimes prepends a holiday notice — 20260915 has its Funds Summary on page 2.
 - **Filing is fiscal-year** like everything else (YE2025 = Aug 2024 → Jul 2025), so Aug/Sep 2026 periods go in `Ceridian/YE2027/`.
 - **Verified:** three periods posted 2026-09-27, each balancing to its Total Payment Due and confirmed in the GL — `CA-B002021` 08/15 **20,463.32** (inv 239271-452), `CA-B002022` 08/31 **21,249.52** (245079-453), `CA-B002023` 09/15 **21,201.00** (254038-454). None had STD or SP.DEDNS, so each is LTD-only at −65.22.
-- **TODO:**  generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` duplicate was resolved — the real file was supplied 2026-09-27 and is filed in YE2027. **The bogus copy is still sitting in `Ceridian/YE2026/20260815.pdf`** (md5 `d641e364…`, identical to 20260731.pdf) and is both wrong and misfiled; it should be deleted.
+- **TODO:**  generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` duplicate was resolved — the real file was supplied 2026-09-27 and is filed in YE2027. The bogus copy that had been sitting in `Ceridian/YE2026/20260815.pdf` (md5 `d641e364…`, identical to 20260731.pdf, and misfiled a year early) was deleted 2026-09-27.
 
 ## ✅ CC 4002 DHL Reconcile (MyBill fetch → parse → two Xoro statements)
 
