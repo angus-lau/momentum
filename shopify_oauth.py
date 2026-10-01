@@ -37,7 +37,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, ".env")
 PORT = 3456
 REDIRECT_URI = "http://localhost:%d/callback" % PORT
-SCOPES = "read_orders,read_shopify_payments_payouts"
+SCOPES = "read_orders,read_shopify_payments_payouts,read_cash_tracking"
 
 
 def env(key):

@@ -481,3 +481,89 @@ Client resilience knobs (`xoro_api.py`): `path_prefix` (currently `Xerp`; flip t
 | `upload_bank_statement.py` | Browser-driven bank-statement upload (Stage 3 — no clean API). |
 | `shopify_deposits.py` | Shopify payout → Xoro bank deposit, via `BankDepositWebMethods` (create/retry/dup-check). See `AUTOMATIONS.md`. |
 | `reconciliation_rules.json`, `GL_ACCOUNTS.md` | Learned payee → GL mappings / valid GL code reference, kept for a future API-driven reconcile (`reconcile.py` removed 2026-08-22 — was browser-only, no API consumers). |
+
+---
+
+## Bank reconciliation, account balances & the UI (discovered 2026-09-30)
+
+### `BankReconcileWebMethods`
+
+| Method | Params | Returns |
+|---|---|---|
+| `getBankRcReportDataByAccntAndDate` | `bankFaccntId`, `date` (MM/DD/YYYY), `asOfFlag` | the reconciliation position at a date: `ReconciledBankBalance`, `ReconciledERPBalance`, `UnReconciledERPBalance`, `NetTotalBank`/`NetTotalERP`, plus `DebitTransERP`/`CreditTransERP` — the items still unreconciled |
+| `getReconcileStatsFromBankRecId` | `bankRecId` | one reconciliation's summary: `BeginningBalance`, `ClearedDeposits`/`ClearedPayments` (+ counts), `ClearedBalance`, `EndingBalance`, `EndingDate`, `Difference` |
+| `getLastReconcileHeaderDetailsFromAccountId` | `bnkrcAccntId` | the latest rec header — **`beginningBal` is only populated for a COMPLETED rec (`StatusId` 700); an in-progress one (`StatusId` 10) reports `0.0`.** Read an open rec through its stats instead. |
+| `addBankRecHeader` / `voidBankRec` | — | create / void (already wrapped) |
+
+Valid `CashTrackingSessionsSortKeys`-style enums matter here too: `addBankRecHeader`
+takes `AccountBegBal`, but the value it reports back comes from the stats call.
+
+### Account balances — the basis for a trial balance
+
+`AccountingWebMethods.getAccountBalanceFromAccountIdAndDateFromChartOfAccounts`
+(`accntId`, `txnDate`) returns an account's balance at a date. The sibling
+`getAccountBalanceFromAccountIdAndDate` (`accntId`, `TxnDate`) **500s** — use the
+`FromChartOfAccounts` one.
+
+> ⚠️ **The balance comes back in the ACCOUNT's own currency, not home currency.**
+> Verified: 1160 BMO CAD → 22,466.0449 (= its rec `NetTotalERP`), 1143 PayPal USD →
+> 2,516.6328 USD, 1190 Wise GBP → 54.61 GBP. Of 359 accounts, 123 are in 7 foreign
+> currencies, so **summing the raw balances does not foot** (out by 164,242.12 at
+> 2026-07-31). There is no home-currency balance method.
+>
+> To get CAD: pull `Xerp/accounting/getgltransactions` with `account_gl_codes=<code>`
+> from inception and sum `AmountHomeCurrency`. **Filter the returned rows to the
+> account's own `GLCode` first** — the endpoint returns every line of each journal
+> entry it touches, so an unfiltered sum is always ~0 (double entry). Validated:
+> 1190 → 54.61 acct / 92.7095 CAD; 1195 → 4,504.76 / 8,711.7303; 1143 → 2,516.6328 /
+> 3,817.0669.
+
+### Netting by reference — the technique for deposits / AR / AP detail
+
+GL rows on a control account net to the open balance per reference. `Customer Deposit`
+rows are credits and `Apply Customer Deposit` rows are debits carrying **the deposit's**
+`RefNumber`, so a net credit balance at a date = still held. Caveat: `Refund Customer
+Deposit` rows carry the **refund's** reference (`CA-CR003909`), not the deposit's, so
+refunds do not net against their deposit and must be reconciled separately.
+
+Always validate against the account balance: *balance at start + GL movement = balance
+at end*. For 1215/1216 over Apr–Jul 2026 this tied to **0.00** on both.
+
+### What this tenant does NOT have
+
+* **No trial balance, balance sheet or income statement report.** No such page exists
+  (`/Accounting/TrialBalance.aspx` and every variant return Xoro's error page; only
+  `/Accounting/AccountRegister/AccountRegister.aspx` is real), and
+  `Reporting/ReportingWebWethods.getReportEntityList` returns 86 entities that are all
+  **document templates** (Invoice, Packing Slip, emails) — the nearest are Customer
+  Statement (126) and Bank Deposit (194).
+* **No bank-reconciliation PDF endpoint.** `BankReconciliationReport_<M>_<D>_<YYYY>.pdf`
+  is generated **client-side**: both reconcile pages load `jspdf` and configure a
+  bootstrap-table export with `exportTypes: ['csv','txt','doc','excel','pdf']`. There is
+  no report entity for it, so `downloadReport` cannot produce one either. Getting the
+  real PDF requires driving a browser (CDP, as `mybill_fetch.py` does).
+* **No AP aging method.** `CustomerWebMethods.getARAgingStatsByCustomerId` exists but is
+  per-customer; `VendorWebMethods` has only `getBalanceFromVenIntAccntId`.
+* **No inventory service.** `ItemProductWebMethods` serves product-variant lookups only;
+  `product/getproduct` returns `AverageUnitCost: null` and no on-hand quantity. A
+  valuation as at a date needs `/Inventory/ItemInventorySnapshot.aspx` in the UI.
+
+### Real UI routes (several guessable names are wrong)
+
+| Page | URL |
+|---|---|
+| Reconcile Bank Account | `/Accounting/BankReconcile/BankReconcilation.aspx` — **Xoro's own typo, missing an `i`** |
+| Bank Reconciliation Centre | `/Accounting/BankReconcile/BankReconciliationCentre.aspx` |
+| Bank Deposit | `/Accounting/BankDeposit/BankDeposit.aspx` |
+| Account Register | `/Accounting/AccountRegister/AccountRegister.aspx` |
+
+`/Accounting/BankReconcile/BankReconcile.aspx` exists but returns **"No Access"** — it
+is not the reconcile screen.
+
+### Page sessions vs `.asmx` sessions
+
+Xoro allows **one page session per login**. When someone else logs in as the same user,
+page GETs return "You have been logged out…" while the **`.asmx` cookie keeps working**.
+So a stale-looking page response does not mean the API cookie is dead, and re-running
+`xoro_login.login()` to get page access **will log the other person out**. Use a browser
+over CDP instead when the UI is genuinely needed.

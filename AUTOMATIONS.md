@@ -291,3 +291,119 @@ Pulls Wise (CAD/EUR/GBP) balance statements for a given month and drops PDF + CS
 - **Output:** `.../Bank Reconciliations/FY{fy}/Wise {CUR}/{YY MM}/statement_{balanceId}_{CUR}_{start}_{end}.{pdf,csv}` — reuses the month folder if it already exists (e.g. from a manual pull), otherwise creates it
 - **Stdlib only** — no `pip install` needed
 - **Verified:** July 2026 — GBP had 1 transaction (£41.91 deposit from AVIVA PLC) and got PDF+CSV written to a newly created `Wise GBP/26 07/`; CAD and EUR had no activity and were skipped
+
+---
+
+## ✅ Shopify POS Cash → Service Centre Cash reconciliation
+
+`shopify_pos_cash.py` · `pos_cash_deposits.py` · `pos_cash_statement.py`
+
+The POS till is reconciled from the Shopify **cash-tracking session**, not from a
+bank statement — the session's counted open/close *is* the statement. One session
+per month: the register is closed and reopened at month end.
+
+```
+python3 shopify_pos_cash.py 2026-08            # the month's session(s)
+python3 pos_cash_deposits.py 2026-08           # deposit the month's POS cash
+python3 pos_cash_statement.py 2026-08          # statement + open the rec
+```
+
+**Scope:** needs `read_cash_tracking` on the Admin API token. Adding it to the app
+config does NOT upgrade an issued token — re-run `python3 shopify_oauth.py _2`
+(the scope is now in `shopify_oauth.SCOPES`). `read_locations` / `read_users` are
+deliberately not requested: `read_users` additionally requires a Plus/Advanced plan
+and a Shopify Support request, and `registerName` covers the register identity.
+
+**Timezone trap:** the API returns session times in UTC but Shopify's search index
+filters them in shop-local time (`America/Los_Angeles`). August's session opens
+`2026-08-01T00:05Z` — which is 31 July locally. A month's session is the one that
+**closes** in that month.
+
+**The statement** (5 lines for Aug 2026): one line per staff adjustment on its own
+date, the POS cash sales total, a penny-rounding line, and the cash count variance.
+
+**Cash rounding:** `totalCashSales` can exceed the sum of the session's own cash
+transactions because POS cash rounds to the nickel. That difference goes on the
+statement as a penny-rounding line (to `6601 - Penny Rounding Adjustments - CAD`),
+never on the deposit — the deposit totals the actual payments.
+
+**`totalDiscrepancy` is not the month's variance.** When the opening count differs
+from the previous close, Shopify folds that prior-period surprise into it. Dec 2025
+opened at 2,514.50 against an expected 0.00 and reports a 2,513.30 discrepancy when
+the month's own variance was -1.20. `pos_cash_statement.py` computes the variance as
+counted-close less expected-close and **refuses** any month with a carried-in
+difference rather than sweeping a prior-period correction into it.
+
+**Matching:** Shopify names a POS order `C36335`; Xoro stores the receipt bare in
+`ChequeNo` as `36335`. Both the receipt number and the amount must agree before a
+payment is deposited — there is an unrelated undeposited 278.88 in the ledger that
+an amount-only match would have grabbed.
+
+---
+
+## ✅ Zonos landed cost → Avalara UK VAT / IOSS
+
+`zonos_landed_cost.py` · `avalara_template.py`
+
+```
+python3 zonos_landed_cost.py 2026-06-01 2026-09-30   # the dashboard export, from the API
+python3 avalara_template.py 2026-06-01 2026-09-30    # the filled AvaTemplate.xlsx
+python3 zonos_landed_cost.py --validate              # diff against the real Jan–Feb export
+python3 avalara_template.py --validate               # diff against the real Feb template
+```
+
+Both have a `--validate` mode that regenerates the real 2026-01-01..2026-02-28
+period and diffs every cell against the hand-built files. **Both match exactly** —
+use it after any change.
+
+**API:** `https://api.zonos.com/graphql`, header **`credentialToken`** (NOT
+`Authorization: Bearer`, which returns `BEARER_TOKEN_INVALID`). Key is
+`ZONOS_CREDENTIAL_TOKEN` in `.env`. The schema is fully introspectable.
+
+**Which rows get filed:** the `processing` column. `TAX REMITTANCE` when the order
+carries a `remittance` (tax collected under one of our own registrations — `taxIds`
+gives GB HMRC `GB271143234` and FR IOSS `IM2500014008`); `CUSTOMS BILL` when it does
+not, i.e. duty/tax billed at the border on a DDP shipment with a carrier advancement
+fee. The AvaTemplate includes **both** kinds for EU/GB destinations — February
+carried 16 CUSTOMS BILL and 2 TAX REMITTANCE.
+
+**Template arithmetic** (read off the hand-built February file):
+`Taxable Basis` = the export's `orderTotal`; `Value VAT` = basis × the destination's
+standard rate to 2dp; `Total` = basis + VAT; `VAT rate` = Value VAT ÷ Taxable Basis
+(the quotient, which is why the file shows `0.26999590…` for Hungary's 27%).
+
+**Three mappings that are easy to get wrong**, all caught by `--validate`:
+* `discounts` arrives **already negative** — add it, don't subtract it.
+* Customer name is `firstName lastName`, falling back to `companyName`. Several
+  records store the name reversed in `companyName` ("Richter Katalin").
+* `DDP_SERVICE_FEE` is the `orderFeeCarrier` column.
+
+**Known gaps in the hand-built files:** order `64050` (IE, Jan 2026, 89.70 VAT) is in
+the Zonos export but missing from February's template, and `65401` (DK, Apr 2026,
+122.64 VAT) has no `26 04` folder at all.
+
+**Where the UK/EU sales went:** GB orders stopped flowing through Zonos after
+2025-10-31 and EU after 2026-02-17, so Zonos is **nil for Jun–Sep 2026**. That VAT is
+now collected at Shopify checkout (GB 20%, EU per-state rates, prices tax-inclusive).
+
+---
+
+## ✅ Year-end bank file pack
+
+`xoro_ye_recon.py`
+
+```
+python3 xoro_ye_recon.py 2026-07-31                       # per-account position at a date
+python3 xoro_ye_recon.py --latest-rec "Wise CAD" ...      # each account's most recent rec
+```
+
+Writes `xoro-recon-<date>.txt` (balances) and `xoro-outstanding-<date>.csv` (items
+still unreconciled at the date) per account. **This is the data behind Xoro's
+`BankReconciliationReport`, not the PDF** — see the Xoro notes below for why the PDF
+cannot be fetched.
+
+**31 July is a hard cut-off for every bank account except BMO USD**, whose statement
+cycle runs to the first week of the following month (its "July" statement covers
+2026-07-08 → 2026-08-04, and Xoro's rec 987 ends 09/04/2026). Credit cards never cut
+at month end — only Amex Corporate 4009, Amex Sofia 4002 and TD VISA 0926 have a
+July statement that spans 31 July.

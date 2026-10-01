@@ -1,3 +1,5 @@
 venv/
 .env
-__pycache__/_oauth_url.txt
+__pycache__/
+_oauth_url.txt
+.DS_Store
