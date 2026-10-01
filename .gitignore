@@ -3,3 +3,8 @@ venv/
 __pycache__/
 _oauth_url.txt
 .DS_Store
+
+# personal spending tracker — not part of this repo, and it is public
+gsheet_oauth.py
+gsheet_spending.py
+spending_*.tsv
