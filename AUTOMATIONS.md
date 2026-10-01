@@ -2,6 +2,25 @@
 
 Quick index of the automations that are built, tested, and ready to re-run.
 
+## Monthly close — coverage against the Todoist checklist
+
+The month-end checklist lives in Todoist, project **Job Overview** (8 parent tasks,
+each with children). API: `https://api.todoist.com/api/v1`, `Authorization: Bearer
+$TODOIST_API_TOKEN` — note the REST **v2** API is retired and returns `410`.
+
+| Section | Items | Automated |
+|---|---|---|
+| Credit Card Reconciliation | 7 cards + check/pay TD balance | **Partial** — convert + upload + open rec; line matching and GL coding stay manual by design. 4002 DHL has its own full flow. |
+| Bank Account Reconciliation | SC Cash, Umpqua 1140, BMO CAD, BMO USD, Wise CAD/EUR/GBP | **Partial** — statements convert + upload + open rec. Shopify Service Centre **Cash** is end to end (deposit + statement + rec). |
+| E-commerce Payouts | Shopify SC, Shopify Consolidated, Amazon US, Amazon CA, PayPal USD, Afterpay, Stripe | **Mostly** — Shopify (both), PayPal, Afterpay, Stripe all scripted. **Amazon US and Amazon CA have no automation at all.** |
+| Sales Tax Returns | Company Quarterly GST, PST, IOSS, HMRC, Simon GST | **Partial** — IOSS/HMRC source data via `zonos_landed_cost.py` + `avalara_template.py`. GST/PST manual. |
+| Filings | WorkSafe BC | No |
+| Payables | Ceridian Payroll | **Yes** — `ceridian_bills.py`, end to end |
+| Miscellaneous | Amortization (on hold), US Business Licence, Property Taxes, GS1 Canada | No |
+| SMWCO | Quickbooks Bank Rec, Excise Tax, Workers Comp, Whatcom Property Tax, Year-end data for Andersen, Business Licence | No — **SMWCO's books are in QuickBooks, not Xoro** |
+
+Biggest remaining gap: **Amazon US / CA payouts**.
+
 > **⚠️ Bank deposit `ExchangeRate`:** Xoro needs it on every deposit to state the amount in CAD (the home currency). The **API does not populate it** — omitting the field stores `0` and zeroes every home-currency GL amount, and hardcoding `1` books a USD deposit as though 1 USD = 1 CAD. Use `xoro_api.exchange_rate_for(date, currency)`, which takes Xoro's own rate for that date from GL postings on accounts in that currency (it raises `AmbiguousRate` rather than guessing when a day has two equally common rates). A deposit in the home currency is rate `1`. Found 2026-09-22 after six USD deposits were posted at rate 1 and had to be corrected via `updateBankDeposit`.
 
 > **Fiscal year folders:** FY ends **July 31**. Month folders live under `CC Expenses/YE <fy>/` and `Bank Reconciliations/FY<fy>/`, where `<fy>` = calendar year for Jan–Jul, calendar year + 1 for Aug–Dec (so `26 07` → YE 2026, `26 08` → YE 2027). Every script derives this from the month (`convert_activity.fiscal_year_end`, `wise_statements.fiscal_year_folder`, `run.sh ye_for_month`) — nothing hardcodes a year.
