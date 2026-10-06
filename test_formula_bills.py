@@ -4,13 +4,12 @@ import datetime
 import unittest
 from decimal import Decimal
 
-from formula_bills import (
-    ACCOUNTS,
-    BalanceError,
-    build_bill,
-    filed_path,
-    parse_invoice,
-)
+import xoro_bills as xb
+from formula_bills import BalanceError, parse_invoice, to_spec
+from test_xoro_bills import REF, past_bill
+
+FORMULA = {"Id": 334, "Name": "Formula Resource Group Ltd.", "CurrencyCode": "CAD"}
+HISTORY = [past_bill("08/01/2026", "7520 - Dues, Memberships and Subscriptions", "Standard (BC)")]
 
 # INVOICE.pdf for 81384, verbatim from pdfplumber.
 INV_81384 = """INVOICE
@@ -80,72 +79,68 @@ class ParseInvoice(unittest.TestCase):
         self.assertEqual(inv["total"], Decimal("57.75"))
 
 
-class BuildBill(unittest.TestCase):
-    def test_subscription_bill_matches_the_one_posted_by_hand(self):
-        bill = build_bill(parse_invoice(INV_81384))
-        h = bill["billHeader"]
-        self.assertEqual((h["VendorId"], h["VendorBillNumber"]), ("334", "81384"))
-        self.assertEqual((h["BillDate"], h["DueDate"]), ("10/01/2026", "10/31/2026"))
-        self.assertEqual(h["TotalAmt"], 293.66)
-        [line] = bill["billExpenseLineArr"]
-        self.assertEqual(line["AccountName"], ACCOUNTS["7520"]["Name"])
-        self.assertEqual((line["Amount"], line["TaxCodeId"]), ("262.20", "3"))
-        self.assertAlmostEqual(line["TaxAmt"], 31.464)
-
-    def test_pst_is_carried_as_non_claimable(self):
-        # without TaxAmtNonCl Xoro books 7520 net and drops the PST from the GL
-        [line] = build_bill(parse_invoice(INV_81384))["billExpenseLineArr"]
-        self.assertAlmostEqual(line["TaxAmtNonCl"], 18.354)
-        self.assertEqual([i["itemId"] for i in line["TaxData"]["taxItems"]], [110, 130])
+class ToSpec(unittest.TestCase):
+    def test_subscription_invoice(self):
+        spec = to_spec(parse_invoice(INV_81384), "INVOICE.pdf")
+        self.assertEqual((spec["vendor"], spec["folder"], spec["invoice_number"], spec["date"]),
+                         ("Formula Resource Group Ltd.", "Formula Resources Group", "81384", "2026-10-01"))
+        self.assertEqual([(l["account"], l["tax_code"], l["amount"]) for l in spec["lines"]],
+                         [("7520", "Standard (BC)", 262.20)])
+        self.assertEqual(spec["taxes"], {"GST": 13.11, "PST": 18.35})
+        self.assertEqual((spec["subtotal"], spec["total"]), (262.20, 293.66))
 
     def test_labour_goes_to_professional_fees_gst_only(self):
-        [line] = build_bill(parse_invoice(INV_81031))["billExpenseLineArr"]
-        self.assertEqual(line["AccountName"], ACCOUNTS["7660"]["Name"])
-        self.assertEqual((line["Amount"], line["TaxCodeId"]), ("55.00", "2"))
-        self.assertEqual(line["TaxAmtNonCl"], 0)
-        self.assertEqual([i["itemId"] for i in line["TaxData"]["taxItems"]], [110])
+        spec = to_spec(parse_invoice(INV_81031), "x.pdf")
+        self.assertEqual([(l["account"], l["tax_code"]) for l in spec["lines"]], [("7660", "GST Only")])
+        self.assertEqual(spec["taxes"], {"GST": 2.75})
 
     def test_mixed_invoice_gets_one_line_per_tax_letter(self):
         inv = parse_invoice(INV_81384)
         inv["lines"].append({"description": "labour", "tax": "G", "amount": Decimal("55.00")})
-        inv["subtotal"] += Decimal("55.00")
-        inv["gst"] += Decimal("2.75")
-        inv["total"] += Decimal("57.75")
-        lines = build_bill(inv)["billExpenseLineArr"]
-        self.assertEqual([(l["AccountName"][:4], l["Amount"], l["LineSeq"]) for l in lines],
-                         [("7520", "262.20", 1), ("7660", "55.00", 2)])
+        lines = to_spec(inv, "x.pdf")["lines"]
+        self.assertEqual([(l["account"], l["amount"]) for l in lines], [("7520", 262.20), ("7660", 55.00)])
 
     def test_account_override_applies_to_every_line(self):
-        [line] = build_bill(parse_invoice(INV_81384), account="7620")["billExpenseLineArr"]
-        self.assertEqual(line["AccountName"], "7620 - Office Supplies")
+        spec = to_spec(parse_invoice(INV_81384), "x.pdf", account="7620")
+        self.assertEqual([l["account"] for l in spec["lines"]], ["7620"])
+
+    def test_refuses_an_unknown_tax_letter_or_account(self):
+        inv = parse_invoice(INV_81384)
+        with self.assertRaises(BalanceError):
+            to_spec(inv, "x.pdf", account="1234")
+        inv["lines"][0]["tax"] = "E"
+        with self.assertRaises(BalanceError):
+            to_spec(inv, "x.pdf")
+
+
+class ThroughTheEngine(unittest.TestCase):
+    def build(self, inv):
+        return xb.build_bill(to_spec(inv, "x.pdf"), FORMULA, xb.vendor_defaults(HISTORY), REF)
+
+    def test_matches_the_bill_posted_by_hand(self):
+        bill, _ = self.build(parse_invoice(INV_81384))
+        h = bill["billHeader"]
+        self.assertEqual((h["VendorId"], h["VendorBillNumber"], h["DueDate"]), ("334", "81384", "10/31/2026"))
+        [line] = bill["billExpenseLineArr"]
+        self.assertEqual((line["AccountId"], line["Amount"], line["TaxCodeId"]), ("ID7520", "262.20", "3"))
+        self.assertAlmostEqual(line["TaxAmtNonCl"], 18.354)
 
     def test_refuses_when_the_total_does_not_match(self):
         inv = parse_invoice(INV_81384)
         inv["total"] = Decimal("300.00")
-        with self.assertRaises(BalanceError):
-            build_bill(inv)
+        with self.assertRaises(xb.BillError):
+            self.build(inv)
 
     def test_refuses_when_the_pdf_pst_disagrees_with_seven_percent(self):
         inv = parse_invoice(INV_81384)
         inv["pst"], inv["total"] = Decimal("10.00"), Decimal("285.31")
-        with self.assertRaises(BalanceError):
-            build_bill(inv)
+        with self.assertRaises(xb.BillError):
+            self.build(inv)
 
-    def test_refuses_an_unknown_tax_letter(self):
-        inv = parse_invoice(INV_81384)
-        inv["lines"][0]["tax"] = "E"
-        with self.assertRaises(BalanceError):
-            build_bill(inv)
-
-
-class FiledPath(unittest.TestCase):
-    def test_fiscal_year_and_name(self):
-        self.assertTrue(filed_path(parse_invoice(INV_81384)).endswith(
-            "Formula Resources Group/YE 2027/26 10 INV#81384 293.66.pdf"))
-
-    def test_before_august_stays_in_the_calendar_year(self):
-        self.assertTrue(filed_path(parse_invoice(INV_81031)).endswith(
-            "Formula Resources Group/YE 2026/26 03 INV#81031 57.75.pdf"))
+    def test_files_under_the_fiscal_year(self):
+        spec = to_spec(parse_invoice(INV_81031), "x.pdf")
+        self.assertEqual(xb.filed_name(spec), "26 03 INV#81031 57.75.pdf")
+        self.assertEqual(xb.fiscal_year(parse_invoice(INV_81384)["date"]), 2027)
 
 
 if __name__ == "__main__":

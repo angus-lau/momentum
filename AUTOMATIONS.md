@@ -75,10 +75,30 @@ Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceri
 - **Verified:** three periods posted 2026-09-27, each balancing to its Total Payment Due and confirmed in the GL — `CA-B002021` 08/15 **20,463.32** (inv 239271-452), `CA-B002022` 08/31 **21,249.52** (245079-453), `CA-B002023` 09/15 **21,201.00** (254038-454). None had STD or SP.DEDNS, so each is LTD-only at −65.22.
 - **TODO:**  generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` duplicate was resolved — the real file was supplied 2026-09-27 and is filed in YE2027. The bogus copy that had been sitting in `Ceridian/YE2026/20260815.pdf` (md5 `d641e364…`, identical to 20260731.pdf, and misfiled a year early) was deleted 2026-09-27.
 
+## ✅ General expense bills (any vendor: invoice PDF → bill spec → Xoro bill → vendor folder)
+
+For any vendor's invoice. Claude reads the PDF and writes a small JSON **bill spec**; `bills.py` does everything else deterministically (engine: `xoro_bills.py`).
+
+- **Run:** `python3 bills.py spec.json` (dry-run), then `--create` to post, GL-verify and file. A spec file holds one spec or a list. Format (full field list in the `xoro_bills.py` docstring):
+  ```json
+  {"pdf": "~/Downloads/Contract Invoice AR487362.pdf", "vendor": "Automation One",
+   "invoice_number": "AR487362", "date": "2026-09-29",
+   "lines": [{"description": "Copier overage", "amount": 10.86}],
+   "taxes": {"GST": 0.54, "PST": 0.76}, "subtotal": 10.86, "total": 12.16}
+  ```
+- **Defaults come from the vendor's own bill history** (`get_bills(vendor_name=…)`): most common account + tax code, and the latest bill's terms, store and AP account. Per-line `account` / `tax_code` (`null` = untaxed), `terms`, `due_date`, `currency`, `exchange_rate` and `folder` override. A vendor with no history must give account, tax code and terms. **Vendors are never created** — an unknown or ambiguous vendor name stops the run.
+- **Tax** is computed from Xoro's own tax tables (`getDataForBill` → `TaxRateViewList`, purchase items only), so any code works; non-collectable items (BC PST) go into the line's `TaxAmtNonCl` (see the Formula section for why).
+- **Foreign currency:** AP = the vendor's last AP for that currency, else `Accounts Payable - Trade (<ccy>)`; rate = `exchange_rate_for` on the invoice date, walking back up to 5 days when the day has no postings. A tied rate stops the run (give `exchange_rate`).
+- **Checks:** refused unless the lines reproduce the invoice's subtotal, each printed tax (by name — GST, PST, HST, QST) and the total, to the cent. An invoice number already on a bill for that vendor is skipped (the PDF is still filed). **After posting** the GL is re-read: balanced, AP = total, expense = net + non-claimable tax — a failure is printed loudly for manual correction.
+- **Filing:** the vendor's folder under `Vendor Invoices - Trade/` is matched by fuzzy name (suffixes like Ltd/Inc, accents and "(…)" ignored; refuses when nothing or more than one matches — give `folder`). The FY subfolder follows that vendor's existing style (`YE 2027` / `YE2027` / `FY 2027`; FY ends July 31) and is created if missing. File name `<yy mm> INV#<n> <total>.pdf`; existing files are never overwritten; the original stays in Downloads.
+- **Out of scope:** inventory/PO item bills, creating vendors, bill payments.
+- **Verified 2026-10-05:** dry-runs reproduce the hand-posted `CA-B002030` (Automation One AR487362 → 7640 Standard (BC), NET 30) and `CA-B002029` (Formula 81384) and report them as already posted; the live GL check passes on both; a USD dry-run (Lowen Watch Group) picks 2101 Trade (USD), Xoro's rate and the `Löwen Watch Group` folder. 32 unit tests (`test_xoro_bills.py`).
+
 ## ✅ Formula Networks IT Bill (invoice PDF → Xoro bill → vendor folder)
 
 Formula Networks (Formula Resource Group Ltd., vendor **334**) bills the Microsoft 365 / Symantec subscriptions monthly, plus the odd hourly-labour invoice.
 
+- **A deterministic front end on the general engine** (above): it parses the PDF itself, so no Claude is needed, and hands the spec to `bills.run`.
 - **Run:** `python3 formula_bills.py ~/Downloads/INVOICE.pdf` (dry-run), then add `--create` to post the bill **and** copy the PDF to `Vendor Invoices - Trade/Formula Resources Group/YE <fy>/<yy mm> INV#<n> <total>.pdf` (the original is left where it was). `--account 7620` (or 7660/7700) sends every line elsewhere, e.g. for hardware.
 - **Coding:** one expense line per tax letter on the invoice — **GP → 7520 Dues, Memberships and Subscriptions, Standard (BC)** (GST 5% + PST 7%); **G → 7660 Professional Fees, GST Only** (labour). Any other letter is refused. Header: AP 2100 Trade (CAD), store CA, NET 30 (due = invoice date + 30), Vendor Bill # = the invoice number.
 - **⚠️ PST must be sent as the line's `TaxAmtNonCl`.** The Xoro UI computes it client-side (`calculateExpenseNcTaxAmount` — the sum of the code's non-collectable tax items × rate); the server does not. Without it the bill total still reads correctly but the GL books 7520 net and the PST vanishes. With it, 7520 posts gross of PST (262.20 → 280.554). Applies to any scripted bill using tax code 3.
