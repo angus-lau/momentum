@@ -189,6 +189,17 @@ class EndpointMethodTest(unittest.TestCase):
         self.assertIn("ref_no=10174", url)
         self.assertIn("page=1", url)
 
+    def test_get_bills_filters_by_snake_case_vendor_name(self):
+        client, transport = self.make_client(
+            [(200, envelope([{"billHeader": {"VendorBillNumber": "81384"}}]))]
+        )
+        rows = client.get_bills(vendor_name="Formula Resource Group Ltd.")
+        self.assertEqual(len(rows), 1)
+        url = transport.calls[0]["url"]
+        self.assertIn("/Xerp/bill/getbill", url)
+        self.assertIn("vendor_name=Formula", url)
+        self.assertIn("page=1", url)
+
     def test_get_gl_transactions_uses_page_number_and_extracts_list(self):
         gl_data = {"transactionList": [{"GLCode": "2226"}], "deletedTxnNumbers": []}
         client, transport = self.make_client([(200, envelope(gl_data))])

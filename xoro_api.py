@@ -224,6 +224,11 @@ class XoroClient:
     def get_credit_memos(self, **filters):
         return self._paginate("creditmemo/getcreditmemo", filters, page_param="page")
 
+    def get_bills(self, **filters):
+        """Vendor bills. Filters are snake_case — ``vendor_name=`` works, a
+        camel-case ``VendorName=`` is silently ignored and returns a default set."""
+        return self._paginate("bill/getbill", filters, page_param="page")
+
     def get_item_receipts(self, **filters):
         return self._paginate("bill/getitemreceipt", filters, page_param="page")
 

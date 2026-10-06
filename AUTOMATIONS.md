@@ -15,7 +15,7 @@ $TODOIST_API_TOKEN` — note the REST **v2** API is retired and returns `410`.
 | E-commerce Payouts | Shopify SC, Shopify Consolidated, Amazon US, Amazon CA, PayPal USD, Afterpay, Stripe | **Mostly** — Shopify (both), PayPal, Afterpay, Stripe all scripted. **Amazon US and Amazon CA have no automation at all.** |
 | Sales Tax Returns | Company Quarterly GST, PST, IOSS, HMRC, Simon GST | **Partial** — IOSS/HMRC source data via `zonos_landed_cost.py` + `avalara_template.py`. GST/PST manual. |
 | Filings | WorkSafe BC | No |
-| Payables | Ceridian Payroll | **Yes** — `ceridian_bills.py`, end to end |
+| Payables | Ceridian Payroll | **Yes** — `ceridian_bills.py`, end to end. (Not a checklist item, but Formula Networks IT invoices are also scripted: `formula_bills.py`.) |
 | Miscellaneous | Amortization (on hold), US Business Licence, Property Taxes, GS1 Canada | No |
 | SMWCO | Quickbooks Bank Rec, Excise Tax, Workers Comp, Whatcom Property Tax, Year-end data for Andersen, Business Licence | No — **SMWCO's books are in QuickBooks, not Xoro** |
 
@@ -74,6 +74,16 @@ Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceri
 - **Filing is fiscal-year** like everything else (YE2025 = Aug 2024 → Jul 2025), so Aug/Sep 2026 periods go in `Ceridian/YE2027/`.
 - **Verified:** three periods posted 2026-09-27, each balancing to its Total Payment Due and confirmed in the GL — `CA-B002021` 08/15 **20,463.32** (inv 239271-452), `CA-B002022` 08/31 **21,249.52** (245079-453), `CA-B002023` 09/15 **21,201.00** (254038-454). None had STD or SP.DEDNS, so each is LTD-only at −65.22.
 - **TODO:**  generalize department/line count (both periods so far had 3 depts — 100/200/300 — confirm the approach holds for periods with a different department count); the `20260815.pdf` duplicate was resolved — the real file was supplied 2026-09-27 and is filed in YE2027. The bogus copy that had been sitting in `Ceridian/YE2026/20260815.pdf` (md5 `d641e364…`, identical to 20260731.pdf, and misfiled a year early) was deleted 2026-09-27.
+
+## ✅ Formula Networks IT Bill (invoice PDF → Xoro bill → vendor folder)
+
+Formula Networks (Formula Resource Group Ltd., vendor **334**) bills the Microsoft 365 / Symantec subscriptions monthly, plus the odd hourly-labour invoice.
+
+- **Run:** `python3 formula_bills.py ~/Downloads/INVOICE.pdf` (dry-run), then add `--create` to post the bill **and** copy the PDF to `Vendor Invoices - Trade/Formula Resources Group/YE <fy>/<yy mm> INV#<n> <total>.pdf` (the original is left where it was). `--account 7620` (or 7660/7700) sends every line elsewhere, e.g. for hardware.
+- **Coding:** one expense line per tax letter on the invoice — **GP → 7520 Dues, Memberships and Subscriptions, Standard (BC)** (GST 5% + PST 7%); **G → 7660 Professional Fees, GST Only** (labour). Any other letter is refused. Header: AP 2100 Trade (CAD), store CA, NET 30 (due = invoice date + 30), Vendor Bill # = the invoice number.
+- **⚠️ PST must be sent as the line's `TaxAmtNonCl`.** The Xoro UI computes it client-side (`calculateExpenseNcTaxAmount` — the sum of the code's non-collectable tax items × rate); the server does not. Without it the bill total still reads correctly but the GL books 7520 net and the PST vanishes. With it, 7520 posts gross of PST (262.20 → 280.554). Applies to any scripted bill using tax code 3.
+- **Self-check:** refuses unless the lines reproduce the PDF's subtotal, GST, PST and Total Amount to the cent. Skips an invoice already posted (matched on Vendor Bill # via `XoroClient.get_bills(vendor_name=…)`), but still files the PDF.
+- **Verified:** invoice 81384 (10/01/2026) → `CA-B002029`, GL identical to the hand-posted 81273 (7520 280.554 / 2226 13.11 / 2100 −293.66). Every archived invoice from YE 2024 on parses and balances; older ones (2013–2023) use other layouts or have GST a cent off 5% and are refused.
 
 ## ✅ CC 4002 DHL Reconcile (MyBill fetch → parse → two Xoro statements)
 

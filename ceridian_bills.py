@@ -220,21 +220,10 @@ def build_bill(funds, journal, date):
 def existing_bill(vendor_bill_number):
     """The Ceridian bill already carrying this invoice number, if any."""
     from xoro_api import XoroClient
-    x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
-    payload = x._get("bill/getbill", {"VendorName": VENDOR_NAME}, full=True)
-    found = []
-
-    def walk(o):
-        if isinstance(o, dict):
-            if o.get("VendorBillNumber") == vendor_bill_number:
-                found.append(o)
-            for v in o.values():
-                walk(v)
-        elif isinstance(o, list):
-            for v in o:
-                walk(v)
-    walk(payload)
-    return found[0] if found else None
+    for b in XoroClient.from_config().get_bills(vendor_name=VENDOR_NAME):
+        if b["billHeader"].get("VendorBillNumber") == vendor_bill_number:
+            return b["billHeader"]
+    return None
 
 
 def main(paths, create=False):
