@@ -159,9 +159,11 @@ A short Shopify deposit (memo `- ERROR: <orders>`) almost always means the order
   4. Retry, **wait 30–60s+** (the connector works the batch newest-first, ~10–15s per order), check whether the order is still listed. Assembled watches reveal one component per round (Sep 2026: every MO order needed component **IF**, one per watch). Repeat; stop on non-inventory errors (no BOM, customer without a name, MO valuation errors) and hand them over.
   5. `python3 shopify_deposits.py --retry service_center 60` (or `momentum`) tops the deposits up in place.
 - **"Causing inventory value/quantity to be negative … Inventory Produced (SC-MO…)" (Error Code 102):** the stock exists but is dated too late for the MO. Post the same +qty **two weeks earlier**, retry, and once it imports reverse the original 1st-of-month adjustment so the net is unchanged. Sep 2026: 36603's blue head 033BBCAFD-AD-B — `SC-IA020229` (+1, 08/18) fixed it, `SC-IA020230` (−1, 09/01) reversed `SC-IA020228`; BD060655 then equalled its payout.
+- **"No bill of material available for item …V…" / "No raw goods inventory locations available for Item …V…":** Xoro is trying to *build* the sold head from its `…V…` twin (e.g. 081AADBVC-EL-B-BK for 081AADBFC-EL-B-BK, 033BBCAVD-AD-B for 033BBCAFD-AD-B). Don't create a BOM — add the **sold item itself** at the short location (same rule, 1st of the month) and retry. Sep 2026: 36902 imported after `SC-IA020231` (081AADBFC-EL-B-BK +1).
+- **"Cannot auto create customer … First name and last name is required":** add a name to the customer on the Shopify order, then retry (36681).
 - **504 Gateway Timeout** from the connector is transient — just retry.
 - **Noise:** ~1,631 of the connector's 1,745 errors are 2023–2025 orders blocked by locked accounting periods — ignore them.
-- **Verified:** Sep 2026 close (2026-10-19) — 19 missing SC orders; 15 adjustments `SC-IA020213`–`SC-IA020228` (incl. IF +11, AUM-AB-AC-A-A +3); 16 orders imported in two retry rounds; 6 of 9 short SC deposits now equal their payouts. Left over: 36603 (MO valuation error SC-MO210851), 36681 (customer has no name), 36902 (no BOM for 081AADBFC-EL-B-BK).
+- **Verified:** Sep 2026 close (2026-10-19) — 19 missing SC orders; 15 adjustments `SC-IA020213`–`SC-IA020228` (incl. IF +11, AUM-AB-AC-A-A +3); 16 orders imported in two retry rounds; all 9 short SC deposits (BD060655–BD060665) now equal their payouts; all 19 orders imported (36603, 36681, 36902 via the fixes below).
 
 ## ✅ Afterpay Deposits (settlement CSV + bank export → Xoro bank deposit)
 
