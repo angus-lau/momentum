@@ -8,3 +8,4 @@ _oauth_url.txt
 gsheet_oauth.py
 gsheet_spending.py
 spending_*.tsv
+.claude/settings.local.json

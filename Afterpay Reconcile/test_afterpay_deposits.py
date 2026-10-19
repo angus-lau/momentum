@@ -70,6 +70,16 @@ class Matching(unittest.TestCase):
         self.assertEqual([d for d, _ in m[0]["groups"]],
                          [datetime.date(2026, 8, 12), datetime.date(2026, 8, 17)])
 
+    def test_same_day_credits_in_either_order(self):
+        # Sep 2026: two credits on one day, sorted smaller-first; the larger pays the earlier settlement
+        groups = group_settlements([row("08/30/2026", "$339.918750", token="x"),
+                                    row("08/31/2026", "$260.988000", token="y")])
+        sep1 = datetime.date(2026, 9, 1)
+        m = match_bank_rows(sorted([(sep1, Decimal("339.92")), (sep1, Decimal("260.99"))]), groups)
+        self.assertEqual([(x["amount"], x["groups"][0][0]) for x in m],
+                         [(Decimal("339.92"), datetime.date(2026, 8, 30)),
+                          (Decimal("260.99"), datetime.date(2026, 8, 31))])
+
     def test_never_reuses_a_settlement(self):
         m = match_bank_rows([(datetime.date(2026, 8, 4), Decimal("296.71")),
                              (datetime.date(2026, 8, 11), Decimal("411.54"))], self.groups)

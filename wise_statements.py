@@ -163,7 +163,7 @@ def main():
         if not folder:
             print(f"{currency}: {count} transaction(s) in {args.month}, but no OneDrive folder mapped — skipping download")
             continue
-        out_dir = os.path.join(ONEDRIVE_BASE, fiscal_year_folder(start_date.year, start_date.month), folder, month_folder)
+        out_dir = os.path.join(ONEDRIVE_BASE, fiscal_year_folder(*(int(x) for x in args.month.split("-"))), folder, month_folder)
         existed = os.path.isdir(out_dir)
         print(f"{currency}: {count} transaction(s) in {args.month} — {'adding to' if existed else 'creating'} \"{folder}/{month_folder}\"")
         for fmt in ("pdf", "csv"):

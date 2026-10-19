@@ -108,12 +108,24 @@ def read_bank_credits(path):
             credit = money(r.get(" Credit") or r.get("Credit"))
             if credit <= 0:
                 continue
-            d = datetime.datetime.strptime(r["Post Date"].strip(), "%m/%d/%Y").date()
+            # newer exports append a time ("10/01/2026 12:23 PM")
+            d = datetime.datetime.strptime(r["Post Date"].split()[0], "%m/%d/%Y").date()
             out.append((d, credit))
     return sorted(out)
 
 
 # ---------- matching ----------
+
+def _run_from(groups, start, bdate):
+    """Running totals (cents) of the settlements from ``start`` dated on/before ``bdate``."""
+    totals, total = [], Decimal(0)
+    for d, g in groups[start:]:
+        if d > bdate:
+            break
+        total += g["net"]
+        totals.append(cents(total))
+    return totals
+
 
 def match_bank_rows(bank, groups):
     """Explain every bank credit as a contiguous run of settlement dates.
@@ -123,7 +135,13 @@ def match_bank_rows(bank, groups):
     outside this bank window (reported as ``skipped_before``).
     """
     matches, i = [], 0
-    for bdate, amount in bank:
+    bank = list(bank)
+    while bank:
+        # Same-day credits have no reliable order (two landed 09/01/2026): take the one
+        # that continues from the next unpaid settlement, so neither skips the other's run.
+        same_day = [b for b in bank if b[0] == bank[0][0]]
+        bdate, amount = next((b for b in same_day if b[1] in _run_from(groups, i, b[0])), bank[0])
+        bank.remove((bdate, amount))
         hit = None
         for start in range(i, len(groups)):
             if groups[start][0] > bdate:
