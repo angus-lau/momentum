@@ -6,6 +6,7 @@ Usage:
     python3 paypal_deposits.py 2026-08              # dry-run: show what would be booked
     python3 paypal_deposits.py 2026-08 --create     # create the deposits
     python3 paypal_deposits.py 2026-08 --create --transfers   # the withdrawals as Fund Transfers
+    python3 paypal_deposits.py 2026-08 --topup [--create]     # add MISSING orders that have since synced (combined; --only KEY for another)
 
 Reads the month's transactions (the CSV `paypal_statements.py` files, or the API with
 ``--api``), resolves each sale to its Shopify order and then to a Xoro undeposited
@@ -30,6 +31,7 @@ Dry-run by default.
 """
 
 import os
+import re
 import sys
 import csv
 import json
@@ -458,6 +460,60 @@ def finalize_combined_fee(month, client=None, dry_run=True):
     return fee
 
 
+MISSING_RE = re.compile(r"order (\S+) \([^)]*\)")
+
+
+def split_missing(memo):
+    """``(memo without the MISSING note, [(order, "order N (txn …)"), …])``."""
+    base, _, rest = (memo or "").partition(" - MISSING: ")
+    return base, [(m.group(1), m.group(0)) for m in MISSING_RE.finditer(rest)]
+
+
+def topup_missing(month, key="combined", client=None, dry_run=True):
+    """Add a deposit's ``MISSING:`` orders once they have synced into Undeposited Funds.
+
+    Same matching as ``build``: every undeposited row whose ChequeNo is one of the
+    order's ``cheque_candidates``, bounded to the month. Orders still absent stay
+    in the memo; the combined fee line is left to ``finalize_combined_fee``.
+    """
+    client = client or WebMethodClient.from_config()
+    info = month_deposits(month, client).get(key)
+    if not info:
+        raise SystemExit("no %s deposit found for %s" % (key, month))
+    d = client.get_bank_deposit(info["id"])
+    obj = d.get("Data") or d
+    header, lines = obj["BankDepositHeaderObj"], obj["BankDepositDetailArr"]
+    base, missing = split_missing(header.get("Memo"))
+    by_cheque = defaultdict(list)
+    for r in client.get_undeposited_transactions(CURRENCY_ID[DEPOSITS[key][1]]):
+        by_cheque[str(r.get("ChequeNo")).strip()].append(r)
+    date = month_end(month)
+    added, still = [], []
+    for order, text in missing:
+        pool = next((by_cheque[f] for f in cheque_candidates(order) if by_cheque.get(f)), [])
+        pool = [r for r in pool if in_month(r, date)]
+        if not pool:
+            still.append(text)
+            continue
+        for row in pool:
+            line = dict(row)
+            line["LinkedFlag"] = True
+            line["LineNumber"] = len(lines)
+            lines.append(line)
+        added.append((order, [r["Amount"] for r in pool]))
+    print("  %s: added %s | still missing: %s"
+          % (info["number"], added or "nothing", "; ".join(still) or "none"))
+    if not added or dry_run:
+        if added:
+            print("  dry run — pass --create to apply")
+        return added
+    header["Memo"] = base + (" - MISSING: " + "; ".join(still) if still else "")
+    header["TotalAmount"] = float(sum(Decimal(str(l["Amount"])) for l in lines))
+    client.update_bank_deposit(obj)
+    print("  updated: total %s, memo: %s" % (header["TotalAmount"], header["Memo"]))
+    return added
+
+
 def month_deposits(month, client=None):
     """The PayPal deposits already posted for a month, keyed by deposit kind.
 
@@ -847,5 +903,8 @@ if __name__ == "__main__":
     if len(args) != 1 or (only and only not in DEPOSITS):
         print(__doc__)
         sys.exit(1)
+    if "--topup" in argv:
+        topup_missing(args[0], key=only or "combined", dry_run="--create" not in argv)
+        sys.exit(0)
     main(args[0], use_api="--api" in argv, create="--create" in argv, only=only,
          transfers="--transfers" in argv)

@@ -8,6 +8,7 @@ import unittest
 from decimal import Decimal
 
 from paypal_deposits import (
+    split_missing,
     SERVICE_CENTRE,
     in_month,
     cheque_candidates,
@@ -125,6 +126,16 @@ class Memos(unittest.TestCase):
         self.assertEqual(month_end("2026-08"), datetime.date(2026, 8, 31))
         self.assertEqual(month_end("2027-02"), datetime.date(2027, 2, 28))
 
+
+
+class SplitMissing(unittest.TestCase):
+    def test_orders_and_their_text(self):
+        base, miss = split_missing("PayPal Payout AUD, EUR - September 2026 - MISSING: order 69207 (txn 4JN, 1EL); order 69234 (txn 2F5)")
+        self.assertEqual(base, "PayPal Payout AUD, EUR - September 2026")
+        self.assertEqual(miss, [("69207", "order 69207 (txn 4JN, 1EL)"), ("69234", "order 69234 (txn 2F5)")])
+
+    def test_no_missing_note(self):
+        self.assertEqual(split_missing("PayPal Payout USD - September 2026"), ("PayPal Payout USD - September 2026", []))
 
 if __name__ == "__main__":
     unittest.main()
