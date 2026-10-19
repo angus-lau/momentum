@@ -200,6 +200,14 @@ def build_deposit(payout, undeposited_rows, exchange_rate="1"):
         cands = [r for r in by_ref.get(it["ref"], []) if id(r) not in used]
         same = [r for r in cands if (float(r["Amount"]) < 0) == want_neg]
         pool = same or cands
+        if not pool and want_neg:
+            # A refund booked in Xoro via credit memo carries its CR number, not the
+            # Stripe charge ref (Sep 2026: CA-CR004358 for CA-CD038407). Fall back to
+            # an exact-amount refund row, but only when exactly one exists.
+            exact = [r for r in undeposited_rows if id(r) not in used
+                     and str(r.get("TxnTypeName", "")).startswith("Refund")
+                     and abs(float(r["Amount"]) - it["amount"]) < 0.005]
+            pool = exact if len(exact) == 1 else []
         if pool:
             best = min(pool, key=lambda r: abs(float(r["Amount"]) - it["amount"]))
             used.add(id(best))
