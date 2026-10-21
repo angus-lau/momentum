@@ -17,7 +17,7 @@ $TODOIST_API_TOKEN` — note the REST **v2** API is retired and returns `410`.
 | Filings | WorkSafe BC | No |
 | Payables | Ceridian Payroll | **Yes** — `ceridian_bills.py`, end to end. (Not a checklist item, but Formula Networks IT invoices are also scripted: `formula_bills.py`.) |
 | Miscellaneous | Amortization (on hold), US Business Licence, Property Taxes, GS1 Canada | No |
-| SMWCO | Quickbooks Bank Rec, Excise Tax, Workers Comp, Whatcom Property Tax, Year-end data for Andersen, Business Licence | No — **SMWCO's books are in QuickBooks, not Xoro** |
+| SMWCO | Quickbooks Bank Rec, Excise Tax, Workers Comp, Whatcom Property Tax, Year-end data for Andersen, Business Licence | **Partial** — SMWCO's books are in QuickBooks; `qbo_api.py` reads and writes them (P&L, GL, JEs). Bank feed and Reconcile stay in the QuickBooks UI. |
 
 Biggest remaining gap: **Amazon US / CA payouts**.
 

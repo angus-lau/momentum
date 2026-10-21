@@ -569,3 +569,45 @@ page GETs return "You have been logged out…" while the **`.asmx` cookie keeps 
 So a stale-looking page response does not mean the API cookie is dead, and re-running
 `xoro_login.login()` to get page access **will log the other person out**. Use a browser
 over CDP instead when the UI is genuinely needed.
+
+---
+
+## Endpoints proven during the Sep 2026 close (Oct 2026)
+
+All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.dumps`) like the rest of this file.
+
+**Journal entries — `JournalEntryWebMethods`**
+- `getJournalEntryObjSchema` → blank `{JournalEntryHeaderObj, JournalEntryLineArr[], SimulatationFlag}`; fill and send
+  `saveJournalEntry(jeObjJson)` → `"Journal Entry JE0xxxxx created successfully"`. USD JE: header `CurrencyId "1001"`,
+  `ExchangeRate` = `xoro_api.exchange_rate_for(date, "USD")`; each line `CurrencyId` = the account's currency.
+- Edit in place: load the JE on `/Accounting/JournalEntry/JournalEntry.aspx` (`Common.editEntity` EntityId **31**, Id = GL `RefId`),
+  take `jrnlEnGetParams()`, change lines, send to `updateJournalEntry`. `jrnlEnGetParams()` returns live references —
+  modify once per page load.
+
+**Bills / item receipts — `BillWebMethods`**
+- Item receipt → bill: `Common.editEntityWithCustomFlag {EntityId:17, Id:<receiptId>, customFlag:"receiptTobill"}`, open
+  `/Bill/Bill.aspx`, capture `saveBillClick()` → `updateBill(billJsonObj)` with `TypeId 20`, `IsConvertToBill true`.
+  The page defaults `BillDate` to today — set it to `TxnDate`; due date from `PaymentWebMethods.getPaymentTermsInfoFromId`.
+  Receipts list: Xerp `bill/getitemreceipt` (TypeId 10; bills are 20).
+- `getBillObjFromBillId {billId}` → `{billHeader, billExpenseLineArr, billItemLineArr, billPaymentLineArr}`.
+- `updateBill(billJsonObj)` re-computes tax unrounded; fix a 1¢ total with a header `TaxAdjItemArr`
+  `[{Id:110,"Name":"GST Purchase 5%","Amount":-0.01}]` (also `TaxAdjItemArrLastValid`).
+- `voidBill(billJsonObj)` — full object; fails if any payment is applied or the period is locked.
+
+**Bill payments — `BillPaymentWebMethods`** (methods: `getBillPaymentObj`, `updateBillPayment`, `voidBillPayment`, `paySelectedBills`, …)
+- `getBillPaymentObj {billPaymentId}` → `{billPaymentHeader, billPaymentDetailArr}`; `voidBillPayment(billPaymentJsonObj)` with that object.
+- `updateBillPayment(billPaymentObjJson)` refuses once reconciled ("Selected bill payment is reconciled").
+- Applying prepayments / vendor credits = `paySelectedBills` with $0 cash: drive `/Payment/Bills/BillPayment.aspx`,
+  `populatePrePaymentDetailArr(i)` / `populateVendorCreditDetailArr(i)`, set `AmountToUse`, `billPymnt_ApplyCredit()`,
+  select rows with `bootstrapTable('checkBy', {field:'BillNumber', values:[…]})`, set `#txt_exchangeRate` to the bill's rate.
+
+**Vendor prepayments / credits**
+- `VendorPrepaymentWebMethods.voidVendorPrepaymentById {vendorPrepaymentId, ChequeVoidDttm:""}` (Id = GL `RefId`).
+- `VendorCreditWebMethods.getVendorCreditSchema` → fill → `createVendorCredit(vendorCreditJsonObj)`; expense line with
+  `TaxCodeId` (2 = GST Only, 3 = Standard (BC)), `TaxAmt`, `TaxAmtNonCl` (PST share).
+
+**Fund transfers** — cross-currency (Umpqua USD → BMO CAD): `CurrencyId "1001"`, `TransferAmount` in USD,
+`ExchangeRate` = the wire's rate; Xoro posts the CAD side as amount × rate.
+
+**Reconciliation data** — `xoro_ye_recon.fetch(client, faccountId, "MM/DD/YYYY")` + `outstanding()` lists unmatched
+bank lines (`BankTrans`) and uncleared ERP items for an open rec.
