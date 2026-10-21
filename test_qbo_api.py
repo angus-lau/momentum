@@ -28,5 +28,19 @@ class EnvTest(unittest.TestCase):
         self.assertEqual((qbo_api.env("A"), qbo_api.env("QBO_REALM_ID")), ("1", "123"))
 
 
+class PostTest(unittest.TestCase):
+    def test_delete_is_a_json_post_with_operation(self):
+        q = qbo_api.QBO.__new__(qbo_api.QBO)
+        q.realm, q.token = "9", "tok"
+        resp = mock.MagicMock()
+        resp.__enter__.return_value.read.return_value = b"{}"
+        with mock.patch.object(qbo_api.urllib.request, "urlopen", return_value=resp) as u:
+            q.post("journalentry", {"Id": "5", "SyncToken": "0"}, operation="delete")
+        req = u.call_args[0][0]
+        self.assertEqual(req.get_method(), "POST")
+        self.assertIn("/company/9/journalentry?operation=delete", req.full_url)
+        self.assertEqual(qbo_api.json.loads(req.data), {"Id": "5", "SyncToken": "0"})
+
+
 if __name__ == "__main__":
     unittest.main()

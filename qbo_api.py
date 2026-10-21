@@ -13,6 +13,8 @@ USE:
     q = QBO()
     q.query("select * from Account where AccountType = 'Bank'")
     q.report("GeneralLedger", start_date="2026-09-01", end_date="2026-09-30")
+    q.post("journalentry", {...})                                  # writes: create/update
+    q.post("journalentry", {"Id": "1", "SyncToken": "0"}, operation="delete")
     python3 qbo_api.py test      # prints the company name
 """
 import base64
@@ -21,6 +23,7 @@ import json
 import os
 import secrets
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -81,12 +84,26 @@ class QBO:
                                                  "refresh_token": env("QBO_REFRESH_TOKEN")}))
 
     def get(self, path, **params):
+        return self._send(path, None, params)
+
+    def post(self, entity, body, **params):
+        """Create/update an entity, e.g. post("journalentry", {...}); delete with
+        post("journalentry", {"Id": .., "SyncToken": ..}, operation="delete")."""
+        return self._send(entity, body, params)
+
+    def _send(self, path, body, params):
         params["minorversion"] = MINOR_VERSION
         url = (API_BASE % self.realm) + path + "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(url, headers={"Authorization": "Bearer " + self.token,
-                                                   "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read().decode())
+        headers = {"Authorization": "Bearer " + self.token, "Accept": "application/json"}
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(url, headers=headers, method="GET" if body is None else "POST",
+                                     data=None if body is None else json.dumps(body).encode())
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:  # Intuit puts the reason in the body
+            raise RuntimeError("QBO %s %s: %s" % (e.code, path, e.read().decode()[:500])) from None
 
     def query(self, sql):
         """Intuit's SQL-like query; returns the entity list (pages of up to 1000)."""
