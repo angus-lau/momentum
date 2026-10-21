@@ -320,6 +320,8 @@ def create_shopify_deposit(amount=None, payout_id=None, date_min=None, date_max=
         rate = str(hc.get("ExchangeRate") or hc.get("Rate") or rate)
     except Exception:  # noqa: BLE001
         pass
+    if cur == "CAD":  # home currency: a USD rate here inflated Sep 2026 SC deposits 1.41x
+        rate = "1"
     obj, matched, missing = build_deposit(payout, undep, exchange_rate=rate, store=store)
     det = obj["BankDepositDetailArr"]
     deposit_total = round(sum(float(r["Amount"]) for r in det), 2)
