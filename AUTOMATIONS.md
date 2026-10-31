@@ -464,6 +464,23 @@ now collected at Shopify checkout (GB 20%, EU per-state rates, prices tax-inclus
 
 ---
 
+## ✅ Clearing stale vendor bills (set-off / paid outside Xoro)
+
+Templates in `xoro_cdp/` (fill placeholders with sed into a scratch copy, run `SEND=false` first, show the summary, then `SEND=true`):
+`vendor_credit.js` → `apply_credit.js` → (set-off only) `invoice_pay.js`. Mechanics in `XORO_API.md` → Vendor prepayments / credits.
+
+- **Bill already paid outside Xoro** (no trace in AP/1321): vendor credit for the open total, line = the bills' own expense
+  account, dated today (not in the locked FY) → apply to the bills with a $0-cash payment. Oct 2026: Lowen, CA-V000083
+  $1,037.11 USD → 7000, four bills closed.
+- **Vendor is also a customer (AR/AP set-off):** vendor credit to **1145 Temporary Bank Account** → apply to the bills;
+  customer payment deposited to 1145 against the oldest invoices, same date so the same rate → 1145 nets to 0 in both
+  currencies. Oct 2026: Mistal, CA-V000084 + IP011054, £57.82.
+- **Policy:** warranty/repair bills stay in 7000 — never book a set-off against sales (it understates revenue during audit).
+  The other side should agree (email) before a set-off.
+- **Verify:** bills `AmountDue` 0 (`get_bills(vendor_name=)`), invoices' `AmountDue`, and `get_gl_transactions(date, date, account_gl_codes="1145")` nets to 0.
+
+---
+
 ## ✅ Year-end bank file pack
 
 `xoro_ye_recon.py`

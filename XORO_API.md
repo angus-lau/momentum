@@ -605,6 +605,30 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 - `VendorPrepaymentWebMethods.voidVendorPrepaymentById {vendorPrepaymentId, ChequeVoidDttm:""}` (Id = GL `RefId`).
 - `VendorCreditWebMethods.getVendorCreditSchema` → fill → `createVendorCredit(vendorCreditJsonObj)`; expense line with
   `TaxCodeId` (2 = GST Only, 3 = Standard (BC)), `TaxAmt`, `TaxAmtNonCl` (PST share).
+- **Template `xoro_cdp/vendor_credit.js`** (proven 2026-10-31, CA-V000083/84): `/VendorCredit/VendorCredit.aspx`; picking the
+  vendor sets AP, currency and the date's rate; push one line into `createVendorCreditGlobal.vendorCreditObj.vendorCreditExpenseLineDetailData`,
+  then `rg_calculateSummary()` and capture `saveVenCrClick`. The expense-line account list includes balance-sheet accounts (e.g. 1145).
+- **Applying a credit to several bills** — `xoro_cdp/apply_credit.js`: per bill row set `billPymntGlobal.editRowIndex = i`,
+  `populateVendorCreditDetailArr(i)`, set `AmountToUse` on the credit, `billPymnt_ApplyCredit()`; then `checkBy` the bills and
+  capture `paySelectedBills`. The header rate is the credit's rate; Xoro posts each bill's FX difference itself. Payment
+  method/account stay at the page default (Cash / Amazon 3P) — harmless at $0 cash.
+
+**Customer payments — `InvoicePaymentWebMethods.payInvoices(jsonObj)`** — template `xoro_cdp/invoice_pay.js` (proven 2026-10-31, IP011054)
+- `/Payment/Invoice/InvoicePayment.aspx`. The customer dropdown is infinite-scroll selectize: `addOption` with `CurrencyId/Code`,
+  `IntAccntId` etc. (from any of the customer's invoices via `get_invoices`), then `setValue` — the change handler loads open invoices.
+- **Untick `#creditCardProcessAccess`** (on by default; otherwise "No card selected"). Set each invoice's `AmountToPay` in
+  `invPymntGlobal.invPaymentViewArr` yourself — `invPymntAutoCalculatePayment` fills in table order, not oldest first.
+- Payment total > applied → overpayment modal instead of a send; keep them equal.
+- Deposit to 1145 works in any currency (header `CurrencyId` = the customer's).
+
+**Sending captured payloads** — always through the page's `execAjx({name, data, wUrl, context})`. A raw `fetch` with
+`{name: obj}` fails with "There was an error processing the request": named params must be double-encoded, which `execAjx` does.
+With several tabs of the same page open, `cdp_eval.mjs` hits the first match — check the payload (vendor/customer id, amount) in the send expression.
+
+**CDP when `/json` 404s** — Chrome's chrome://inspect "remote debugging" toggle listens on 9222 but serves no `/json/version`;
+`cdp_eval.mjs`/`cdp_open.mjs` fall back to `ws://127.0.0.1:9222/devtools/browser` (Chrome may prompt to allow the first connection).
+
+**GL reads time out on wide ranges** (`Execution Timeout Expired`) — filter `account_gl_codes` and keep date ranges to a few months.
 
 **Fund transfers** — cross-currency (Umpqua USD → BMO CAD): `CurrencyId "1001"`, `TransferAmount` in USD,
 `ExchangeRate` = the wire's rate; Xoro posts the CAD side as amount × rate.

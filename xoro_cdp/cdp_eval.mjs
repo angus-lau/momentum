@@ -6,7 +6,7 @@ const [pat, src] = process.argv.slice(2);
 const expr = fs.existsSync(src) ? fs.readFileSync(src, "utf8") : src;
 let ver;
 for (const b of ["http://[::1]:9222", "http://127.0.0.1:9222"]) { try { const r = await fetch(b + "/json/version"); if (r.ok) { ver = await r.json(); break; } } catch {} }
-const ws = new WebSocket(ver.webSocketDebuggerUrl);
+const ws = new WebSocket(ver?.webSocketDebuggerUrl ?? "ws://127.0.0.1:9222/devtools/browser") // chrome://inspect remote debugging serves no /json;
 let id = 0; const pending = new Map();
 const send = (method, params = {}, sessionId) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params, sessionId })); });
 ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result || m.error); pending.delete(m.id); } };
