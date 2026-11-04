@@ -13,7 +13,7 @@ $TODOIST_API_TOKEN` — note the REST **v2** API is retired and returns `410`.
 | Credit Card Reconciliation | 7 cards + check/pay TD balance | **Partial** — convert + upload + open rec; line matching and GL coding stay manual by design. 4002 DHL has its own full flow. |
 | Bank Account Reconciliation | SC Cash, Umpqua 1140, BMO CAD, BMO USD, Wise CAD/EUR/GBP | **Partial** — statements convert + upload + open rec. Shopify Service Centre **Cash** is end to end (deposit + statement + rec). |
 | E-commerce Payouts | Shopify SC, Shopify Consolidated, Amazon US, Amazon CA, PayPal USD, Afterpay, Stripe | **Mostly** — Shopify (both), PayPal, Afterpay, Stripe all scripted. **Amazon US and Amazon CA have no automation at all.** |
-| Sales Tax Returns | Company Quarterly GST, PST, IOSS, HMRC, Simon GST | **Partial** — IOSS/HMRC source data via `zonos_landed_cost.py` + `avalara_template.py`. GST/PST manual. |
+| Sales Tax Returns | Company Quarterly GST, PST, IOSS, HMRC, Simon GST | **Partial** — IOSS source data via `zonos_landed_cost.py` + `avalara_template.py`; HMRC return from Xoro 2256/2245 (see *HMRC quarterly VAT return*). GST/PST manual. |
 | Filings | WorkSafe BC | No |
 | Payables | Ceridian Payroll | **Yes** — `ceridian_bills.py`, end to end. (Not a checklist item, but Formula Networks IT invoices are also scripted: `formula_bills.py`.) |
 | Miscellaneous | Amortization (on hold), US Business Licence, Property Taxes, GS1 Canada | No |
@@ -461,6 +461,34 @@ the Zonos export but missing from February's template, and `65401` (DK, Apr 2026
 **Where the UK/EU sales went:** GB orders stopped flowing through Zonos after
 2025-10-31 and EU after 2026-02-17, so Zonos is **nil for Jun–Sep 2026**. That VAT is
 now collected at Shopify checkout (GB 20%, EU per-state rates, prices tax-inclusive).
+
+### HMRC quarterly VAT return (MTD, via 100PcVatFreeBridge)
+
+Filed by us, not Avalara: fill `SpreadSheetSingl1e.xlsx` (tab `vatret01`, Box values in
+column H: H8 Box 1, H13 Box 4, H17 Box 6, H20 Box 7) and submit it through the free
+**100PcVatFreeBridge** MTD bridge. Folder: `Accounting Docs/Vendor Invoices - Trade/HM Revenue & Customs/FY<yyyy>/<period>/`.
+Due ~7th of the second month after quarter end (Jul–Sep → 7 Nov).
+
+| Box | What | Source |
+|---|---|---|
+| 1 | VAT on GB orders **≤ £135** (goods ex VAT, ex shipping), net of refunds | Xoro **2256 EU Tax Liability** |
+| 4 | 0 | — |
+| 6 | Net value of those ≤ £135 orders | same rows |
+| 7 | Import value of > £135 orders = DHL UK VAT → GBP ÷ 0.2 | Xoro **2245 VAT UK – Paid** (DHL bills) |
+
+- **Shopify's UK VAT does not post to 2240 (VAT UK – Collected).** It lands in **2256** mixed with
+  EU VAT. Pull 2256 GL month by month, then `getinvoice?invoice_number=…&header_only=true` →
+  `ShipToCountryISO2 == "GB"`, `SubTotal` = net (USD). Credit memos: `getcreditmemo?credit_memo_number=…`
+  → `ShipToCountry`. Xoro has no GBP figures; Shopify's `presentment_money` does, but the app only
+  sees the last 60 days (no `read_all_orders`).
+- **> £135 orders** are DDP: Shopify collects 20% from the customer and DHL charges it back as import
+  VAT, so only their value (Box 7) is reported. Exclude non-DHL rows in 2245 (e.g. JE "Sent money to HMRC VAT").
+- **FX:** Bank of Canada calendar-year average to quarter end (Valet API `FXUSDCAD,FXGBPCAD`);
+  USD→GBP = USDCAD ÷ GBPCAD, CAD→GBP = 1 ÷ GBPCAD. Note the rates in the sheet.
+- **Before Nov 2025** the ≤ £135 VAT went through Zonos and Box 1 was filed as 0. Since Zonos stopped,
+  Box 1 carries it.
+- **Jul–Sep 2026:** Box 1 £71.17 (13 orders), Box 6 £355.82, Box 7 £7,589.97 (DHL CA$2,827.78 →
+  £1,517.99, bills CA-B001982/B002003/B002018). Cross-checked Sep against Shopify GBP to 2p.
 
 ---
 
