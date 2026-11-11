@@ -580,4 +580,4 @@ Removes the charge lines, restores costs, reverses the 1300/2145 posting. Proven
 - Charge amounts are typed in CAD; the page converts to the receipt currency (CAD 100 → USD 70.49 at 1.41865).
 - The old process (2024–2025) put **CAD ~$18,437 of `CANADA GST`** (23 lines) into item cost — e.g. CA-B001872 put
   $243.36 GST into 1300 with nothing on 2226. That inventory was overstated and the ITC may have been missed; FY2024–26
-  are closed/under audit, so raise it with the user before touching anything.
+  are closed/under audit. **Decided 2026-11-10: leave it** (too long ago) — don't raise it again.
