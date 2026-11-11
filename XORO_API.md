@@ -580,6 +580,8 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 - `getJournalEntryObjSchema` → blank `{JournalEntryHeaderObj, JournalEntryLineArr[], SimulatationFlag}`; fill and send
   `saveJournalEntry(jeObjJson)` → `"Journal Entry JE0xxxxx created successfully"`. USD JE: header `CurrencyId "1001"`,
   `ExchangeRate` = `xoro_api.exchange_rate_for(date, "USD")`; each line `CurrencyId` = the account's currency.
+- Line `Amount` is **signed**: debit lines positive, credit lines negative (plus `DebitAmount`/`CreditAmount`). Unsigned
+  amounts are refused with "Transactions not in balance". Proven 2026-11-10, JE017296.
 - Edit in place: load the JE on `/Accounting/JournalEntry/JournalEntry.aspx` (`Common.editEntity` EntityId **31**, Id = GL `RefId`),
   take `jrnlEnGetParams()`, change lines, send to `updateJournalEntry`. `jrnlEnGetParams()` returns live references —
   modify once per page load.
@@ -593,6 +595,14 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 - `updateBill(billJsonObj)` re-computes tax unrounded; fix a 1¢ total with a header `TaxAdjItemArr`
   `[{Id:110,"Name":"GST Purchase 5%","Amount":-0.01}]` (also `TaxAdjItemArrLastValid`).
 - `voidBill(billJsonObj)` — full object; fails if any payment is applied or the period is locked.
+- **Landed cost (Item Receipt Reconciliation)** — `updateItemReceipt({billHeader, billItemLineArr, billExpenseLineArr})`
+  from `/ItemReceipt/ItemReceipt.aspx` (open with `Common.asmx/editEntity` **EntityId 16**, then load the page). Wizard:
+  `showReconcileModal` → `addReconcileItem` (service item, CAD rate converted to receipt currency) → `calculateLandedCost`
+  (`LandedCostCalcType` 10/20/30/40) → `calculateReconcileSummary` → untick *Add to Vendor Bill?* → `finishReconcile` →
+  accrual rows `LineReconcileAccrualAccntId` (2145 `B7D04105A81B8E2096BE4BAB44D0`) + `LineReconcileEntityAccntId` (carrier)
+  → `addVendorAndAccrualAccount` → `saveBillClick`. Undo: `undoReconcileWrapper(false)` → save. The receipt's
+  `ReconciliationDataJSON` keeps the allocation. Template `xoro_cdp/landed_cost.js`; see AUTOMATIONS.md *Landed cost*.
+  A save leaked past an `execAjx` stub once — block XHR/fetch writes too when capturing.
 
 **Bill payments — `BillPaymentWebMethods`** (methods: `getBillPaymentObj`, `updateBillPayment`, `voidBillPayment`, `paySelectedBills`, …)
 - `getBillPaymentObj {billPaymentId}` → `{billPaymentHeader, billPaymentDetailArr}`; `voidBillPayment(billPaymentJsonObj)` with that object.

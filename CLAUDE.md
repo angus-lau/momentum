@@ -24,6 +24,9 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
 3. **Payouts**: Shopify SC + Consolidated (`shopify_deposits.py`, then `--retry` after fixing missing orders),
    Stripe, Afterpay, PayPal (`paypal_deposits.py`), Amazon (workbook, `amazon_sheet_exports.py <from> <to>`).
 4. **Bills**: Ceridian (`ceridian_bills.py`), Formula (`formula_bills.py`), others via `bills.py`.
+   **Landed cost**: inbound freight/duty (DHL `E10*`, FedEx, Livingston) goes into item cost on the receipt via
+   `xoro_cdp/landed_cost.js` (accrues 2145; code the carrier charge to 2145, not 7070/7020). GST stays an ITC.
+   2145 must net to 0. See AUTOMATIONS.md *Landed cost*.
 5. **Recs**: user ticks in Xoro; help find matches with `xoro_ye_recon.fetch()` / `outstanding()`.
 6. **SMWCO** in QuickBooks (`qbo_api.py`): reconcile 1142 Checking (1448) → P&L Net Operating Income →
    fulfillment worksheet (`Accounting Docs/Fulfillment Fees Worksheet - bill to Corp from Company.xlsx`,
@@ -47,5 +50,7 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   (e.g. "Formula Resource Group **Ltd.**") — duplicates were found for Formula and Evertime.
 - A reconciled bill payment cannot be edited; use a vendor credit instead.
 - Xoro recalculates line tax unrounded; add a ±0.01 GST tax adjustment to match an invoice total.
+- Capture-only runs must block XHR/fetch writes, not just stub `execAjx` — a test save of CA-B002055 got through
+  (Nov 2026, undone). Never call `WebMethodClient` from Python while driving the browser: it logs the tab out.
 - QuickBooks: bank feed "For Review" and Reconcile are UI-only. Get the 9/30 bank balance from the user
   (Banking tile shows today's balance — back out later activity).

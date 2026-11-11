@@ -528,3 +528,56 @@ cycle runs to the first week of the following month (its "July" statement covers
 2026-07-08 → 2026-08-04, and Xoro's rec 987 ends 09/04/2026). Credit cards never cut
 at month end — only Amex Corporate 4009, Amex Sofia 4002 and TD VISA 0926 have a
 July statement that spans 31 July.
+
+## ✅ Landed cost — inbound freight & duty into item cost (Item Receipt Reconciliation)
+
+`xoro_cdp/receipt_open.js` · `xoro_cdp/landed_cost.js` — **tested 2026-11-10 (capture only), not yet run for real.**
+
+Inbound freight, duties and brokerage on inventory shipments belong in **item cost**, not in 7070 / 7020. Xoro does
+this natively ("Item Receipt Reconciliation"). It was used Feb 2024 – Dec 2025 (2145 nets to $0.01), then stopped:
+from Dec 2025 to Nov 2026 inbound costs were expensed (7020 $49,263.67, 7070 $2,553.34, Aug 2025 – Oct 2026).
+
+**What it posts** (proven on CA-B002055 by an accidental real save, then reversed — see below):
+
+| | Account | Note |
+|---|---|---|
+| Dr | 1300 Inventory | spread over the receipt's items; `LandedUnitCost` rises |
+| Cr | 2145 Accrued Payables – Landed Cost (Not Matched) | accrued against the carrier (DHL Express Canada / Fedex Canada / …) |
+| — | supplier AP (2141 etc.) | unchanged — the charge is kept **off** the supplier's bill |
+
+The carrier's own bill then clears it: **Dr 2145 / Cr AP**. Month-end check: **2145 nets to 0**.
+
+**Monthly steps (when an inbound shipment has freight/duty):**
+1. Find the receipt for the shipment (`xoro_api.get_item_receipts(created_at_min=...)`; open receipts have
+   `ReconcileFlag False`). DHL `E10*` customs invoices give the origin and invoice # (cols K/L of the 4002 reconcile).
+2. Split the carrier invoice into **5100 Shipping/Freight** and **DUTIES & BROKERAGE**, in CAD, **excluding GST**.
+   Import GST is an input tax credit (DHL: the GST tax adjustment on `dhl_bill.py`) — never add `CANADA GST` to cost.
+3. Open the receipt: `sed 's/__RECEIPT_ID__/<billHeader.Id>/' xoro_cdp/receipt_open.js` → `node cdp_eval.mjs xoro.one <file>`.
+4. Dry run: fill `__CFG__` in `landed_cost.js`, e.g.
+   `{"receipt":"CA-B002055","vendorId":"0F9F2EE8-DCF2-41C7-B39B-492E9E217E63","send":false,
+     "charges":[{"item":"5100","cad":100,"calc":"30"},{"item":"DUTIES & BROKERAGE","cad":50,"calc":"30"}]}`
+   (`calc`: 10 Unit Cost, 20 Quantity, **30 Amount** (default — value-based, suits duty), 40 CBM). Check
+   `balanced: true`, `itemCostAfter − itemCostBefore = charges` (in the receipt's currency), both charges `[item, true, false]`
+   (= on 2145, not on the supplier bill), `blockedWrites: []`.
+5. Reload the page, re-open the receipt, run with `"send":true`. Re-read the receipt in the page
+   (`execAjx getBillObjFromBillId`) and check 2145 / 1300 in the GL.
+6. In the card/bank rec, code the carrier's charge to **2145** (not 7070/7020) so the accrual clears.
+
+Carrier vendor ids (`IntAccntId`): DHL Express Canada `0F9F2EE8-DCF2-41C7-B39B-492E9E217E63` (CAD),
+Fedex Canada `C522F883-E76B-48A7-BE56-3C993C6CE31B` (CAD), UPS Canada `5B887279-5750-46F8-A3D2-257D8215227E` (CAD),
+Livingston `98B9B56B-F827-468F-8841-BA2C3EFAC5E3` (USD), Scan Global `BDBC01DD-BC0E-4369-B7C7-76A19B5EB43B` (USD).
+USD carriers accrue to **2146** (USD) — not yet scripted (`landed_cost.js` uses 2145 and CAD).
+
+**Undo** a reconcile: on the receipt page `undoReconcileWrapper(false)` (confirm OK) → `saveBillClick` → `updateItemReceipt`.
+Removes the charge lines, restores costs, reverses the 1300/2145 posting. Proven 2026-11-10 on CA-B002055.
+
+**Gotchas found while building it**
+- Receipt page session entity is **16** (`createRcptGlobal.RcptData.IRSessionEntity`), not 17.
+- Stubbing `execAjx` alone did **not** stop a save: CA-B002055 was saved for real (6:34 PM) during testing and had to be
+  undone. `send:false` now also blocks every write-looking XHR/fetch until the page reloads.
+- Don't use `WebMethodClient` / `xoro_login` from Python while driving the browser — it logs the tab out (one session).
+  `XoroClient` GL reads are fine.
+- Charge amounts are typed in CAD; the page converts to the receipt currency (CAD 100 → USD 70.49 at 1.41865).
+- The old process (2024–2025) put **CAD ~$18,437 of `CANADA GST`** (23 lines) into item cost — e.g. CA-B001872 put
+  $243.36 GST into 1300 with nothing on 2226. That inventory was overstated and the ITC may have been missed; FY2024–26
+  are closed/under audit, so raise it with the user before touching anything.
