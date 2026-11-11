@@ -182,6 +182,7 @@ This document lists all General Ledger accounts used by St. Moritz Watch Company
 | 4104 | Sales - Band Assembly |
 | 4105 | Sales - Otherfinished good |
 | 4106 | Sales - Service Part |
+| 4950 | Redo Coverage Fees (Other Income; x-redo item in, Redo coverage bill out, nets ~0) |
 
 ## 5xxx - Cost of Goods Sold
 
@@ -226,6 +227,7 @@ This document lists all General Ledger accounts used by St. Moritz Watch Company
 | 7025 | Duties & Brokerage (Drawbacks) |
 | 7060 | Delivery Expense - Customers (CAD) |
 | 7061 | Shipping Expense |
+| 7062 | Return Shipping (sub of 7061; return labels we pay on Redo invoices) |
 | 7070 | Delivery Expense - Other (Freight) |
 | 7080 | Inventory Variance (W/O) |
 | 7081 | Inventory Adjustment |

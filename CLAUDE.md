@@ -40,6 +40,9 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   (7235 Digital Advertising / 7060 Delivery / 7020 Duties) — ask which.
 - **"DEP 5041721448" book transfers**: SMWCO's QBO Checking (1448); Xoro side is 1260 Intercompany.
 - **Branch deposits at BMO CAD**: till cash = Cr 1121 Cash–Service Centre; Simon's own cash = Cr 2900 Shareholder Loan.
+- **Redo** (since Nov 2026): Shopify `x-redo` line → item `x-redo` → Cr 4950 Redo Coverage Fees. Redo's monthly
+  bill: coverage → Dr 4950 (nets to ~0), return labels we pay → Dr 7062 Return Shipping. Xoro won't map an item's
+  income to a liability, hence 4950 instead of a clearing account. Older Redo charges sit in MISC income.
 - **Livingston** debits are duties (7020); a large Livingston *credit* is a tariff (IEEPA) refund → Cr 7020.
 - **CAD deposits use rate 1** (Service Centre). A USD rate on a CAD deposit inflates it and blocks the rec.
 - **Item receipts → bills**: convert in place (`editEntityWithCustomFlag` `receiptTobill` → Bill page →
