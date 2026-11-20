@@ -592,6 +592,17 @@ The carrier's own bill then clears it: **Dr 2145 / Cr AP**. Month-end check: **2
    (`execAjx getBillObjFromBillId`) and check 2145 / 1300 in the GL.
 6. In the card/bank rec, code the carrier's charge to **2145** (not 7070/7020) so the accrual clears.
 
+**Receipt already converted to a bill** (most supplier shipments by month end): same flow on `/Bill/Bill.aspx` with
+`xoro_cdp/landed_cost_bill.js` (generated from `landed_cost.js`: `crtItmRcpt`→`crtPOBill`, `createPOBillGlobal`,
+save `btn_crtPOBill_SaveBill` → `updateBill`). Open with `xoro_cdp/bill_open.js` (`editEntity [17, <GL RefId>]`); the
+session hand-off is used once, so redo it before every page load. Supplier bill AP stays unchanged; 2145 is accrued.
+A bill that already carries the supplier's own freight line reports `balanced: false` — expected (Somal CA-B002038).
+- Match carrier customs entries to bills by **customs value = bill total** (FedEx A2-… statements list ship date,
+  sender, tracking, customs value, duty, GST per shipment). Split one shipment over several bills by bill value.
+- Then book each card line: Dr 2145 (entity Fedex Canada) for freight + duty, Dr 2226 for import GST, Cr the card.
+- **Oct 2026 (4009 FedEx, 10,388.18):** landed cost on CA-B002034, 036, 037, 038, 041, 042, 043 = 6,817.36 to 2145;
+  card JEs JE017536–JE017542; 2145 nets to 0. Unmatched bits: 131.65 freight (HK "W Y") → 7070, 6.00 duty → 7020.
+
 Carrier vendor ids (`IntAccntId`): DHL Express Canada `0F9F2EE8-DCF2-41C7-B39B-492E9E217E63` (CAD),
 Fedex Canada `C522F883-E76B-48A7-BE56-3C993C6CE31B` (CAD), UPS Canada `5B887279-5750-46F8-A3D2-257D8215227E` (CAD),
 Livingston `98B9B56B-F827-468F-8841-BA2C3EFAC5E3` (USD), Scan Global `BDBC01DD-BC0E-4369-B7C7-76A19B5EB43B` (USD).
