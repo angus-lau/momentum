@@ -41,11 +41,15 @@ Dr expense (+ Dr 2226 GST) / Cr the card account.
 3. `python3 card_coding.py post <card> "<YY MM>"` (dry-run) → `--commit`. Skips lines already booked
    (same date + memo + amount on the card). Then the user ticks the rec.
 - Line entities need `EntityCurrencyId` or Xoro refuses with "Entity and account currency must be same".
-- **CAD cards only so far.** USD cards (Delta 2109, Blue 2110, BOA 2111) need header `CurrencyId 1001` and
-  `ExchangeRate` = `xoro_api.exchange_rate_for(date, "USD")` per JE before `post` is used on them.
+- **USD cards** (Delta 2109, Blue 2110, BOA 2111): every line in USD (`CurrencyId 1001`) at
+  `exchange_rate_for(txn date, "USD")`, no entities, matching the hand-made JEs.
+- `gst`: Y = GST only (total × 5/105); GP = GST + BC PST (total × 5/112, PST stays in the expense).
+- Card payments: fund transfer from **1160 BMO CAD** (CAD cards) or **1140 Umpqua** (USD cards), dated the
+  card's payment date (Oct 2026: FT001543–FT001547). BOA's autopay is a JE to 1140 from history.
 - Fix a posted line with one reclass JE rather than editing (e.g. JE017338, 141.99 2900 → 7320).
 - **Verified 2026-11-19:** CIBC Oct 2026, 41 lines → JE017297–JE017337, card total −16,406.40 = statement
-  charges less the 35.83 Costco credit; all balanced, no duplicates.
+  charges less the 35.83 Costco credit; all balanced, no duplicates. Same day: 4009 (JE017339–398), TD
+  (JE017399–428), Sofia non-DHL (JE017429–463) all tie to their statements less held-out carrier lines.
 
 ## ✅ Ceridian (Dayforce) Payroll Bill
 

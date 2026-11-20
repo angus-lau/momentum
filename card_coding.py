@@ -13,7 +13,7 @@ card (e.g. Costco = 50% 2900 / 50% 7620 + GST). Restaurants always go to 7320, n
 search and marks them "search" for the user to review. Payments are skipped: they match the
 transfer in the rec.
 
-Editing coding.csv: put a GL code in `account` (and `gst` Y/N) to override the history split.
+Editing coding.csv: put a GL code in `account` (and `gst` Y / GP / N) to override the history split.
 Leave `account` blank to keep `template`. Put `skip` in `account` to leave a line alone.
 """
 
@@ -27,11 +27,12 @@ import re
 import sys
 
 import convert_activity as ca
-from xoro_api import XoroClient
+from xoro_api import XoroClient, exchange_rate_for
 
 PROCESSORS = {"SQ", "TST", "HCM", "BAM", "PAYPAL", "SP", "DD", "LS"}
 RESTAURANT = re.compile(r"RESTAURAN|\bPHO\b|KITCHEN|BISTRO|SUSHI|PIZZ|GRILL|CAFE|COFFEE|BAKE|CATERI|"
                         r"TIMEOUT|CACTUS CLUB|PROVISIONS|CHOICES|LOBLAWS|DINER|RAMEN|IZAKAYA|TAQUER|NOODLE|DUMPLING|BURGER|BRASSERIE|EATERY", re.I)
+CARRIER = re.compile(r"FEDEX|LIVINGSTON|LIV INTL|\bDHL\b", re.I)   # landed cost / DHL flow, not a JE
 PAYMENT = re.compile(r"PAYMENT.*THANK YOU|PAIEMENT", re.I)
 GST_RATE = 0.05
 MEALS = "7320"
@@ -99,9 +100,10 @@ def history(card_gl, end, months=12, client=None):
 def suggest(key, month, client=None):
     acct = ca.ACCOUNTS[key]
     folder = ca.get_month_folder(key, month)
-    lines, _ = ca.convert_to_lines(acct.get("bank_config", key), ca.find_activity_file(folder))
+    lines, _ = ca.convert_to_lines(acct.get("bank_config", key), ca.find_activity_file(folder),
+                                   dhl_filter=acct.get("dhl_filter", False))   # DHL has its own pass
     card_gl = acct["option"].split(" ")[0]
-    end = max(dt.date.fromisoformat(l["date"]) for l in lines)
+    end = max(_date(l["date"]) for l in lines)
     hist = history(card_gl, end, client=client)
     out = []
     for l in lines:
@@ -111,6 +113,8 @@ def suggest(key, month, client=None):
                    template="", split="", account="", gst="", note="")
         if PAYMENT.search(desc):
             row.update(source="payment", account="skip", note="card payment: match the transfer in the rec")
+        elif CARRIER.search(desc):
+            row.update(source="carrier", account="skip", note="landed cost (2145) or DHL flow")
         elif RESTAURANT.search(desc):
             row.update(source="rule", account=MEALS, gst="N", note="restaurant -> 7320")
         elif k in hist:
@@ -132,7 +136,17 @@ def suggest(key, month, client=None):
 
 def _line_fields(l):
     """(description, signed amount, MM/DD/YYYY) from a convert_to_lines row; charges are negative."""
-    return l["description"], float(l["amount"]), dt.date.fromisoformat(l["date"]).strftime("%m/%d/%Y")
+    return l["description"], float(l["amount"]), _date(l["date"]).strftime("%m/%d/%Y")
+
+
+def _date(s):
+    """Card exports differ: 2026-10-20, 10/20/2026, 20 Oct 2026."""
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d %b %Y"):
+        try:
+            return dt.datetime.strptime(s.strip(), fmt).date()
+        except ValueError:
+            pass
+    raise ValueError("unknown date format: %r" % s)
 
 
 # ---------- posting ----------
@@ -155,14 +169,15 @@ def build_parts(row, hist_by_ref, accounts, gst_line):
         acc = accounts[a]
         base = {"gl": a, "id": acc["FAccountingId"], "name": acc["ExtendedName"], "type": acc["FAccountTypeId"],
                 "entity": "", "entity_name": ""}
-        if row["gst"].strip().upper() == "Y":
-            net = total / (1 + GST_RATE)
-            parts = [dict(base, amt=net), dict(gst_line, amt=total - net)]
+        g = row["gst"].strip().upper()
+        if g in ("Y", "GP"):   # Y = GST only; GP = GST + 7% BC PST (PST stays in the expense)
+            gst = total * GST_RATE / (1 + GST_RATE + (0.07 if g == "GP" else 0))
+            parts = [dict(base, amt=total - gst), dict(gst_line, amt=gst)]
         else:
             parts = [dict(base, amt=total)]
     else:
         parts = [dict(t, amt=t["share"] * total) for t in hist_by_ref[row["template"]]]
-    return _round_lines(parts, round(total, 2))
+    return [p for p in _round_lines(parts, round(total, 2)) if p["amt"]]   # history can carry 0.00 lines
 
 
 def post(key, month, commit=False):
@@ -224,15 +239,17 @@ def _save_je(w, row, parts, card, card_gl, total):
     memo = row["description"]
     h = sch["JournalEntryHeaderObj"]
     dr = round(sum(p["amt"] for p in parts if p["amt"] > 0) + max(-total, 0), 2)
-    h.update(TxnDate=row["date"], Memo=memo, CurrencyId=1, ExchangeRate=1, TotalDebitAmount=dr, TotalCreditAmount=dr)
+    cur = card["CurrencyId"]   # USD card: every line in USD at Xoro's rate for the day, as the hand-made JEs are
+    rate = 1 if cur == 1 else exchange_rate_for(dt.datetime.strptime(row["date"], "%m/%d/%Y").date().isoformat(), "USD")
+    h.update(TxnDate=row["date"], Memo=memo, CurrencyId=str(cur), ExchangeRate=rate, TotalDebitAmount=dr, TotalCreditAmount=dr)
     tpl = sch["JournalEntryLineArr"][0]
 
     def line(n, acc_id, name, typ, gl, amt, entity=""):
         l = copy.deepcopy(tpl)
         l.update(AccountId=acc_id, AccountName=name, AccountTypeId=typ, GLCode=gl,
                  DebitAmount=max(amt, 0), CreditAmount=max(-amt, 0), Amount=amt, OriginalAmount=amt,
-                 CurrencyId=1, ExchangeRate=1, Memo=memo, LineNumber=n)
-        if entity:
+                 CurrencyId=cur, ExchangeRate=rate, Memo=memo, LineNumber=n)
+        if entity and cur == 1:   # shortcut: USD JEs go without entity (none on the hand-made ones either)
             l.update(EntityAccountId=entity, EntityCurrencyId=1)
         return l
 
