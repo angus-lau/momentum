@@ -94,6 +94,7 @@ def history(card_gl, end, months=12, client=None):
         sig = tuple(sorted((t["gl"], round(t["share"], 2)) for t in tmpl))
         slot = hist[merchant_key(card[0]["Memo"] or "")].setdefault(sig, {"n": 0, "tmpl": tmpl, "ref": ref})
         slot["n"] += 1
+        slot.setdefault("refs", {})[ref] = tmpl   # the sheet's template may be any JE of this split
     return hist
 
 
@@ -204,7 +205,7 @@ def post(key, month, commit=False):
     hist_by_ref, gst_line = {}, None
     for sigs in hist.values():
         for s in sigs.values():
-            hist_by_ref[s["ref"]] = s["tmpl"]
+            hist_by_ref.update(s["refs"])
             gst_line = gst_line or next((dict(t) for t in s["tmpl"] if t["gl"] == "2226"), None)
     if gst_line is None:
         g = accounts["2226"]
@@ -212,14 +213,18 @@ def post(key, month, commit=False):
                     "entity": "", "entity_name": ""}
 
     # already booked: same date, memo and amount on the card
-    existing = {(r["TxnDate"], (r["Memo"] or "").strip(), round(-float(r["Amount"]), 2))
-                for r in x.get_gl_transactions(dates[0].isoformat(), dates[-1].isoformat(), account_gl_codes=card_gl)
-                if r.get("TxnTypeName") == "Journal Entry" and r["GLCode"] == card_gl}
+    # counted, because a statement can carry the same charge twice; GL memo can read "<header> | <line>"
+    existing = collections.Counter(
+        (r["TxnDate"], (r["Memo"] or "").split(" | ")[0].strip(), round(-float(r["Amount"]), 2))
+        for r in x.get_gl_transactions(dates[0].isoformat(), dates[-1].isoformat(), account_gl_codes=card_gl)
+        if r.get("TxnTypeName") == "Journal Entry" and r["GLCode"] == card_gl)
 
     posted, skipped = [], []
     for r in todo:
         total = round(float(r["amount"]), 2)
-        if (r["date"], r["description"].strip(), total) in existing:
+        k = (r["date"], r["description"].strip(), total)
+        if existing[k] > 0:
+            existing[k] -= 1
             skipped.append(r["description"])
             continue
         parts = build_parts(r, hist_by_ref, accounts, gst_line)
@@ -240,7 +245,7 @@ def _save_je(w, row, parts, card, card_gl, total):
     h = sch["JournalEntryHeaderObj"]
     dr = round(sum(p["amt"] for p in parts if p["amt"] > 0) + max(-total, 0), 2)
     cur = card["CurrencyId"]   # USD card: every line in USD at Xoro's rate for the day, as the hand-made JEs are
-    rate = 1 if cur == 1 else exchange_rate_for(dt.datetime.strptime(row["date"], "%m/%d/%Y").date().isoformat(), "USD")
+    rate = 1 if cur == 1 else exchange_rate_for(dt.datetime.strptime(row["date"], "%m/%d/%Y").date().isoformat(), "USD", on_tie="lowest")   # tie spread is ~0.1%, home amount only
     h.update(TxnDate=row["date"], Memo=memo, CurrencyId=str(cur), ExchangeRate=rate, TotalDebitAmount=dr, TotalCreditAmount=dr)
     tpl = sch["JournalEntryLineArr"][0]
 
