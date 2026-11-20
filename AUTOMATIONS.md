@@ -197,6 +197,23 @@ A short Shopify deposit (memo `- ERROR: <orders>`) almost always means the order
 - **"Order total mismatch by -x" on a duties-prepaid international order** (DHL Express Worldwide *Duties & Taxes Included*): Shopify's total includes import duties that Xoro doesn't build (69317, JP/JPY: −17.43 ≈ duties 15.85 + FX). Not fixed by stock — raised with Xorosoft as **T093754** (2026-10-19).
 - **Connector accounts:** "Momentum Watch - POS" = ca-momentumwatch (Service Center, CAD); **"Momentum Watch CAN" = momentum-watch-teifi-digital, the US store** (USD → Umpqua) despite the name. Switch via the frame's *Change Account* (`/Account/changeAccount`) → Login — no password.
 - **504 Gateway Timeout** from the connector is transient — just retry.
+- **Login (Nov 2026):** the login frame's `#AccountName` only lists the last account used, and *Change Account* bounces
+  back. Add the option and call the page's own login: `s.add(new Option('Momentum Watch - POS', ...)); s.value=...;
+  loginAccount()` — the account then shows in the frame URL (`account=Momentum Watch - POS`).
+- **Retry one order at a time** and wait until that order's error row changes (new `IMPORT_EXPORT_DATE` or gone) before
+  the next. Batches of 8–33 return 200 but mostly don't run, or fail with "Execution Timeout Expired" / "SqlTransaction
+  has completed" / "invoice creation already in process" — all transient. Up to **5 tries** per order (user, 2026-11-20).
+- **Oct 2026 (2026-11-20):** 33 SC orders; adjustments SC-IA020306–324 (IF +70 in total, GL +11, AUM +5, …); assembled
+  watches surfaced IF, then GL, one component per round. 37104 (customer name) → ticket T094783; 69551 (US, "București")
+  → ticket T094782; 36956 (no BOM for CJKB-C-C) → emailed.
+
+### Planned: `shopify_fix.py` — run the whole loop unattended
+Not built yet. One command for both stores: missing orders from the short deposits' memos → connector login per store →
+read each error → stock shortage: post the adjustment (1st of the closing month, short location, 7081) **within a
+standing limit per SKU** (user to set) → retry one order at a time up to 5 tries → `shopify_deposits.py --retry` →
+report (imported / adjustments posted / needs the user: customer names, BOMs, state errors, give-ups). Runs in the
+background while other work goes on. Prerequisite: `WebMethodClient` borrows the debug Chrome's Xoro session
+(cookies via CDP) instead of logging in, so API scripts stop logging the browser out (Xoro allows one session).
 - **Noise:** ~1,631 of the connector's 1,745 errors are 2023–2025 orders blocked by locked accounting periods — ignore them.
 - **Verified:** Sep 2026 close (2026-10-19) — 19 missing SC orders; 15 adjustments `SC-IA020213`–`SC-IA020228` (incl. IF +11, AUM-AB-AC-A-A +3); 16 orders imported in two retry rounds; all 9 short SC deposits (BD060655–BD060665) now equal their payouts; all 19 orders imported (36603, 36681, 36902 via the fixes below).
 

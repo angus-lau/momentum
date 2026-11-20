@@ -1,6 +1,6 @@
 // Post one +DELTA adjustment at SAMPLES & VANCOUVER SERVICE CENTRE INVENTORY (store SC 10008), dated DATE.
 (async () => {
-  const ITEM = __ITEM__, SKU = '__SKU__', ADJ = '__ADJ__', DELTA = __DELTA__, DATE = '09/01/2026', SEND = __SEND__;
+  const ITEM = __ITEM__, SKU = '__SKU__', ADJ = '__ADJ__', DELTA = __DELTA__, DATE = '__DATE__', SEND = __SEND__;
   const LOC = 'SAMPLES & VANCOUVER SERVICE CENTRE INVENTORY', STORE = '10008';
   const $ = jQuery, wait = ms => new Promise(r => setTimeout(r, ms));
   const call = p => new Promise(res => execAjx(Object.assign({context: $('<span>')}, p), res));
@@ -30,7 +30,7 @@
   $('#tbl_invAdj_ByQuantity').bootstrapTable('load', data);
   $('#txt_invAdj_adjDate').val(DATE);
   $('#dd_invAdj_adjRCode').selectpicker('val', '2');
-  $('#txt_invAdj_adjMemo').val('Sep 2026 close: stock for Shopify SC orders failing import (' + SKU + ' +' + DELTA + ')');
+  $('#txt_invAdj_adjMemo').val('__CLOSE__ close: stock for Shopify SC orders failing import (' + SKU + ' +' + DELTA + ')');
   invAdjCalcSummary();
   let cap = null; const real = window.execAjx, conf = window.showConfirm;
   window.execAjx = (p, cb) => { if (/adjustInventory/.test(p.wUrl)) cap = JSON.parse(JSON.stringify(p.data)); else real(p, cb); };

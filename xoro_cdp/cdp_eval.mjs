@@ -12,7 +12,7 @@ const send = (method, params = {}, sessionId) => new Promise((res) => { const i 
 ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result || m.error); pending.delete(m.id); } };
 ws.onopen = async () => {
   const { targetInfos } = await send("Target.getTargets");
-  const t = targetInfos.find((x) => (x.type === "iframe" || x.type === "page") && x.url.includes(pat));
+  const t = targetInfos.find((x) => x.type === (process.env.CDP_TYPE || x.type) && (x.type === "iframe" || x.type === "page") && x.url.includes(pat));
   if (!t) { console.log("no target matching", pat, targetInfos.filter(x=>/page|iframe/.test(x.type)).map((x) => x.type + " " + x.url.split("?")[0])); process.exit(1); }
   const { sessionId } = await send("Target.attachToTarget", { targetId: t.targetId, flatten: true });
   const r = await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
