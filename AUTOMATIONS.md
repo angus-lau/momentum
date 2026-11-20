@@ -209,8 +209,8 @@ A short Shopify deposit (memo `- ERROR: <orders>`) almost always means the order
 
 ### Planned: `shopify_fix.py` — run the whole loop unattended
 Not built yet. One command for both stores: missing orders from the short deposits' memos → connector login per store →
-read each error → stock shortage: post the adjustment (1st of the closing month, short location, 7081) **within a
-standing limit per SKU** (user to set) → retry one order at a time up to 5 tries → `shopify_deposits.py --retry` →
+read each error → stock shortage: post the adjustment (1st of the closing month, short location, 7081) (**repeat-short components IF and GL: +50 at a time**; other SKUs: the
+qty the order is short — user, 2026-11-20) → retry one order at a time up to 5 tries → `shopify_deposits.py --retry` →
 report (imported / adjustments posted / needs the user: customer names, BOMs, state errors, give-ups). Runs in the
 background while other work goes on. Prerequisite: `WebMethodClient` borrows the debug Chrome's Xoro session
 (cookies via CDP) instead of logging in, so API scripts stop logging the browser out (Xoro allows one session).
