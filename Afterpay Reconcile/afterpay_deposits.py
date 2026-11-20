@@ -233,7 +233,8 @@ def build_deposit(match, order_numbers, undeposited):
         for row in g["rows"]:
             token = row["Merchant Order ID"]
             order = order_numbers.get(token)
-            signed = -money(row["Order Amount"]) if row["Type"].lower().startswith("refund") \
+            # a refund's Order Amount is the original order; what left us is its Settlement Amount
+            signed = money(row["Settlement Amount"]) if row["Type"].lower().startswith("refund") \
                 else money(row["Order Amount"])
             if not order:
                 missing.append("%s(%s %s)" % (token, row["Type"], signed))
@@ -271,15 +272,22 @@ def build_deposit(match, order_numbers, undeposited):
     return {"BankDepositHeaderObj": header, "BankDepositDetailArr": lines}, lines, missing
 
 
-def check_duplicate(match):
-    """Raise if a Bank Deposit of this amount already sits on Umpqua near this date."""
+def check_duplicate(match, matches=()):
+    """Raise if a Bank Deposit of this amount already sits on Umpqua near this date.
+
+    A deposit dated on *another* bank credit of the same amount belongs to that credit
+    (Oct 2026: two 280.47 credits three days apart blocked each other).
+    """
     d = match["date"]
+    others = {m["date"].strftime("%m/%d/%Y") for m in matches
+              if m is not match and m["amount"] == match["amount"]}
     start = (d - datetime.timedelta(days=3)).isoformat()
     end = (d + datetime.timedelta(days=3)).isoformat()
     x = XoroClient.from_config() if hasattr(XoroClient, "from_config") else XoroClient()
     rows = x.get_gl_transactions(start, end, account_gl_codes=DEPOSIT_ACCOUNT["GLCode"])
     hit = next((r for r in rows if r.get("TxnTypeName") == "Bank Deposit"
-                and cents(Decimal(str(r.get("Amount") or 0))) == match["amount"]), None)
+                and cents(Decimal(str(r.get("Amount") or 0))) == match["amount"]
+                and r.get("TxnDate") not in others), None)
     if hit:
         raise WebMethodError(
             "a Bank Deposit (%s, %s) already exists near %s — refusing to duplicate"
@@ -294,6 +302,11 @@ def main(settlements_csv, bank_csv, create=False):
 
     tokens = sorted({r["Merchant Order ID"] for m in matches for _d, g in m["groups"] for r in g["rows"]})
     order_numbers = shopify_order_numbers(tokens)
+    # --order=<token>:<order#> fills a token Shopify's search can't find (refunds sometimes aren't indexed)
+    for a in sys.argv:
+        if a.startswith("--order="):
+            t, o = a[len("--order="):].split(":", 1)
+            order_numbers[t] = o
     client = WebMethodClient.from_config()
     undeposited = client.get_undeposited_transactions(CURRENCY_ID)
     print("%d token(s) resolved, %d undeposited %s row(s) in Xoro\n"
@@ -318,7 +331,7 @@ def main(settlements_csv, bank_csv, create=False):
         if not ok:
             print("    not created (does not balance)\n")
             continue
-        check_duplicate(m)
+        check_duplicate(m, matches)
         client.create_bank_deposit(obj)
         print("    created\n")
 
