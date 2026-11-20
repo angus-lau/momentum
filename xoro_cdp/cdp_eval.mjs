@@ -16,6 +16,6 @@ ws.onopen = async () => {
   if (!t) { console.log("no target matching", pat, targetInfos.filter(x=>/page|iframe/.test(x.type)).map((x) => x.type + " " + x.url.split("?")[0])); process.exit(1); }
   const { sessionId } = await send("Target.attachToTarget", { targetId: t.targetId, flatten: true });
   const r = await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
-  console.log(JSON.stringify(r.exceptionDetails ? r.exceptionDetails : (r.result ? r.result.value : r), null, 1));
-  process.exit(0);
+  // exit only once stdout has flushed: process.exit() right after a large write to a pipe truncates it
+  process.stdout.write(JSON.stringify(r.exceptionDetails ? r.exceptionDetails : (r.result ? r.result.value : r), null, 1) + "\n", () => process.exit(0));
 };
