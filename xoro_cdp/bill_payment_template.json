@@ -1,0 +1,47 @@
+[
+ {
+  "billPaymentHeader": {
+   "StoreId": null,
+   "AccountPayableId": "B7B8887984D745EE867FD5B84456",
+   "AccountPayableName": "2100 - Accounts Payable - Trade (CAD)",
+   "AccountPayableCurrencyId": 1,
+   "VendorId": 387,
+   "VendorName": "DHL Express Canada",
+   "VendorChequeDispName": "DHL Express Canada",
+   "ChequeNumber": null,
+   "PaymentMethodTypeId": 30,
+   "PaymentMethodTypeName": "Credit Card",
+   "PaymentMethodAccountId": "B7D138593ECE05E9BAB630984F4B",
+   "PaymentMethodAccountCurrencyId": 1,
+   "PaymentMethodAccountName": "2106 - Credit Card Payable - American Express Sofia 4002",
+   "TxnDate": "11/10/2026",
+   "ExchangeRate": "1",
+   "CurrencyId": 1,
+   "TotalAmount": 4500.95,
+   "TotalAmountPaid": 4500.95,
+   "PaymentMethodId": "5",
+   "PaymentMethodName": "American Express",
+   "RefNo": "",
+   "Memo": ""
+  },
+  "billPaymentDetailArr": [
+   {
+    "BillId": 2062,
+    "TotalCreditAmount": 0,
+    "DiscountAmount": 0,
+    "AmountPaid": 4500.95,
+    "OldExchangeRate": 1,
+    "TotalBillAmountPaid": 4500.95,
+    "VendorCreditItemArr": [],
+    "BillNumber": "CA-B002061",
+    "StoreId": 10001,
+    "CurrencySymbol": "$         ",
+    "StoreName": "CA",
+    "BillAmountDueBefore": 4500.95,
+    "OriginalBillAmount": 4500.95,
+    "VendorPrePaymentItemArr": []
+   }
+  ],
+  "Seq": 1
+ }
+]
