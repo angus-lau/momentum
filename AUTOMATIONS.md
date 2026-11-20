@@ -25,6 +25,23 @@ Biggest remaining gap: **Amazon US / CA payouts**.
 
 > **Fiscal year folders:** FY ends **July 31**. Month folders live under `CC Expenses/YE <fy>/` and `Bank Reconciliations/FY<fy>/`, where `<fy>` = calendar year for Jan–Jul, calendar year + 1 for Aug–Dec (so `26 07` → YE 2026, `26 08` → YE 2027). Every script derives this from the month (`convert_activity.fiscal_year_end`, `wise_statements.fiscal_year_folder`, `run.sh ye_for_month`) — nothing hardcodes a year.
 
+## ✅ Card line coding (statement lines → one JE each)
+
+After a card statement is uploaded and its rec opened, `card_coding.py` codes every line and books it the way
+the cards were booked by hand: one JE per line, dated the transaction date, memo = card description,
+Dr expense (+ Dr 2226 GST) / Cr the card account.
+
+1. `python3 card_coding.py suggest <card> "<YY MM>"` → `<month folder>/coding.csv`. Each line takes the split
+   its merchant got most often in the last 12 months on that card (Costco = 50% 2900 / 50% 7620 + GST).
+   Restaurants → **7320**, overriding history (user, 2026-11-19). Payments are skipped (they match a transfer).
+2. Lines marked `unknown`: Claude web-searches the merchant (Haiku for big batches) and fills `account` / `gst`.
+   Show the user the sheet; they approve or edit (`account` overrides the history split; `skip` leaves a line).
+3. `python3 card_coding.py post <card> "<YY MM>"` (dry-run) → `--commit`. Skips lines already booked
+   (same date + memo + amount on the card). Then the user ticks the rec.
+- Line entities need `EntityCurrencyId` or Xoro refuses with "Entity and account currency must be same".
+- **Verified 2026-11-19:** CIBC Oct 2026, 41 lines → JE017297–JE017337, card total −16,406.40 = statement
+  charges less the 35.83 Costco credit; all balanced, no duplicates.
+
 ## ✅ Ceridian (Dayforce) Payroll Bill
 
 Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceridian Corporation — booking wages/CPP/EI by department plus the Dayforce service fee, netted against LTD so the bill balances exactly to the PDF's "Total Payment Due". Built once via browser (no API schema existed for Bill creation), payload now captured for future API-driven runs.

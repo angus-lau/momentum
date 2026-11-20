@@ -44,6 +44,7 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   bill: coverage → Dr 4950 (nets to ~0), return labels we pay → Dr 7062 Return Shipping. Xoro won't map an item's
   income to a liability, hence 4950 instead of a clearing account. Older Redo charges sit in MISC income.
 - **Livingston** debits are duties (7020); a large Livingston *credit* is a tariff (IEEPA) refund → Cr 7020.
+- **Restaurants on any card → 7320 Meals and Entertainment** (user, 2026-11-19): business expense, not 2900.
 - **CAD deposits use rate 1** (Service Centre). A USD rate on a CAD deposit inflates it and blocks the rec.
 - **Item receipts → bills**: convert in place (`editEntityWithCustomFlag` `receiptTobill` → Bill page →
   `updateBill`), keeping the receipt date as bill date. Then apply vendor prepayments (1321) on Bill Payment.
