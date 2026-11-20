@@ -10,7 +10,7 @@ $TODOIST_API_TOKEN` — note the REST **v2** API is retired and returns `410`.
 
 | Section | Items | Automated |
 |---|---|---|
-| Credit Card Reconciliation | 7 cards + check/pay TD balance | **Partial** — convert + upload + open rec; line matching and GL coding stay manual by design. 4002 DHL has its own full flow. |
+| Credit Card Reconciliation | 7 cards + check/pay TD balance | **Mostly** — convert + upload + open rec; GL coding by `card_coding.py` (one JE per line, user approves the sheet first). Ticking the rec stays manual. 4002 DHL has its own full flow; carrier freight/duty goes via landed cost. |
 | Bank Account Reconciliation | SC Cash, Umpqua 1140, BMO CAD, BMO USD, Wise CAD/EUR/GBP | **Partial** — statements convert + upload + open rec. Shopify Service Centre **Cash** is end to end (deposit + statement + rec). |
 | E-commerce Payouts | Shopify SC, Shopify Consolidated, Amazon US, Amazon CA, PayPal USD, Afterpay, Stripe | **Mostly** — Shopify (both), PayPal, Afterpay, Stripe all scripted. **Amazon US and Amazon CA have no automation at all.** |
 | Sales Tax Returns | Company Quarterly GST, PST, IOSS, HMRC, Simon GST | **Partial** — IOSS source data via `zonos_landed_cost.py` + `avalara_template.py`; HMRC return from Xoro 2256/2245 (see *HMRC quarterly VAT return*). GST/PST manual. |
@@ -33,12 +33,17 @@ Dr expense (+ Dr 2226 GST) / Cr the card account.
 
 1. `python3 card_coding.py suggest <card> "<YY MM>"` → `<month folder>/coding.csv`. Each line takes the split
    its merchant got most often in the last 12 months on that card (Costco = 50% 2900 / 50% 7620 + GST).
-   Restaurants → **7320**, overriding history (user, 2026-11-19). Payments are skipped (they match a transfer).
+   Restaurants, Choices West and Loblaws → **7320**, overriding history (user, 2026-11-19); add merchants to
+   the `RESTAURANT` regex. Payments are skipped (they need a fund transfer from the paying bank).
+   Hold out carrier lines (FedEx on 4009, DHL on 4002): they go through landed cost / the DHL flow.
 2. Lines marked `unknown`: Claude web-searches the merchant (Haiku for big batches) and fills `account` / `gst`.
    Show the user the sheet; they approve or edit (`account` overrides the history split; `skip` leaves a line).
 3. `python3 card_coding.py post <card> "<YY MM>"` (dry-run) → `--commit`. Skips lines already booked
    (same date + memo + amount on the card). Then the user ticks the rec.
 - Line entities need `EntityCurrencyId` or Xoro refuses with "Entity and account currency must be same".
+- **CAD cards only so far.** USD cards (Delta 2109, Blue 2110, BOA 2111) need header `CurrencyId 1001` and
+  `ExchangeRate` = `xoro_api.exchange_rate_for(date, "USD")` per JE before `post` is used on them.
+- Fix a posted line with one reclass JE rather than editing (e.g. JE017338, 141.99 2900 → 7320).
 - **Verified 2026-11-19:** CIBC Oct 2026, 41 lines → JE017297–JE017337, card total −16,406.40 = statement
   charges less the 35.83 Costco credit; all balanced, no duplicates.
 

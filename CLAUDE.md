@@ -19,7 +19,7 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
 
 ## Monthly order (what worked in Sep 2026)
 1. **Cards** (7): give the user each card's expected statement date; convert + upload via API (no
-   BankStatementImport.csv needed); open recs. DHL bill from 4002 → `dhl_bill.py --create`, paid by Amex 2106.
+   BankStatementImport.csv needed); open recs; code lines with `card_coding.py` (suggest → user approves → post). DHL bill from 4002 → `dhl_bill.py --create`, paid by Amex 2106.
 2. **Banks**: BMO CAD/USD, Umpqua 1140, Wise CAD/EUR/GBP, PayPal 1143, SC Cash 1121 — statements up, recs open.
 3. **Payouts**: Shopify SC + Consolidated (`shopify_deposits.py`, then `--retry` after fixing missing orders),
    Stripe, Afterpay, PayPal (`paypal_deposits.py`), Amazon (workbook, `amazon_sheet_exports.py <from> <to>`).
