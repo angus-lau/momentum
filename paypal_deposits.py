@@ -593,13 +593,16 @@ def deposit_status(month, csv_rows):
         all_lines.extend(info["lines"])
     unconsumed = list(all_lines)          # lines no transaction has claimed yet
 
-    def claim_by_order(order):
-        hit = False
-        for l in list(unconsumed):
-            if str(l.get("ChequeNo")).strip() in cheque_candidates(order):
-                unconsumed.remove(l)
-                hit = True
-        return hit
+    def claim_by_order(order, txn):
+        """Claim ONE line of the order, same sign as the transaction (a refund takes the
+        negative row). Claiming every line of the order let a charge swallow its own
+        refund's line, so the refund showed red although it was deposited (Oct 2026)."""
+        lines = [l for l in unconsumed if str(l.get("ChequeNo")).strip() in cheque_candidates(order)]
+        same = [l for l in lines if (Decimal(str(l.get("Amount") or 0)) < 0) == (txn.gross < 0)]
+        if not same:
+            return False
+        unconsumed.remove(min(same, key=lambda l: abs(Decimal(str(l.get("Amount") or 0)) - txn.gross)))
+        return True
 
     def claim_by_amount(txn):
         """Exact same-currency amount match — safe only within one currency, since a
@@ -616,7 +619,7 @@ def deposit_status(month, csv_rows):
     for t in txns:
         if t.description in SALE_DESCRIPTIONS:
             order = resolved.get(t.invoice_id)
-            if order and any(f in banked for f in cheque_candidates(order)) and claim_by_order(order):
+            if order and any(f in banked for f in cheque_candidates(order)) and claim_by_order(order, t):
                 deposited.add(t.transaction_id)
             elif claim_by_amount(t):
                 # refunds of orders sold in earlier months don't resolve: the token
