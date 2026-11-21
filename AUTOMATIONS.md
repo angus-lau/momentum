@@ -60,7 +60,13 @@ Calls recorded from the user ticking rec 1005 (2026-11-21): `ConnectBankWebMetho
 - Match = same signed amount, date within 5 days, same description preferred (card JEs carry it as memo).
 - `MatchedFlag`/`MatchedTxnId` on a line is only **Xoro's suggestion** — still unticked. A suggestion that differs
   from our match is held; so is any line **≥ $1,000** (user rule) until `--include-large` after review.
-- Never clicks Finish; the user finishes and sends the report → `file_rec.py`.
+- Never clicks Finish on its own. **Finish + report on request** (done 2026-11-21 for 1005/1008): load the rec on
+  `BankReconcilation.aspx` (`Common.entityNavigator {EntityId "34", value <recId>, customFlag "reconcile"}`, then open
+  the page; check `bankReconcileGlobal.BankRecId`), call `BankReconcileWebMethods.finishBankRec {bankRecId}` — the
+  server checks its own difference (the page's on-screen difference can be stale after API ticking). Report:
+  `printBankRecReportClick(id)` → `#btn_reportTemplatePromptSelect` (Print Preview) opens `/Reports/ReportViewer.aspx`
+  (Telerik); CDP `Browser.setDownloadBehavior` allow → `$('#reportViewer1').data('telerik_ReportViewer')
+  .commands.export.exec('PDF')` lands `BankReconciliationReport_<date>.pdf` in Downloads → `file_rec.py`.
 - **Oct 2026:** recs 1005 (4009) and 1008 (Sofia) ticked to difference 0.00 (68 + 36 lines).
 
 ## ✅ Ceridian (Dayforce) Payroll Bill
