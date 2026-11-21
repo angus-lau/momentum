@@ -44,7 +44,10 @@ def match(lines, txns, days=DAYS):
         if not cands:
             left.append(ln)
             continue
-        best = min(cands, key=lambda t: (desc not in (t.get("MEMO") or "").upper(), abs((_d(t["TXN_DATE"]) - day).days)))
+        # same description first; then a transaction dated on/before the bank date (money leaves PayPal before it
+        # reaches the bank — a 10/26 credit is FT 10/23, not FT 10/28); then the nearest date
+        best = min(cands, key=lambda t: (desc not in (t.get("MEMO") or "").upper(), _d(t["TXN_DATE"]) > day,
+                                         abs((_d(t["TXN_DATE"]) - day).days)))
         free.remove(best)
         pairs.append((ln, best))
     return pairs, left, free
