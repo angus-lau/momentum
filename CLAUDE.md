@@ -55,6 +55,7 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
 - A reconciled bill payment cannot be edited; use a vendor credit instead.
 - Xoro recalculates line tax unrounded; add a ±0.01 GST tax adjustment to match an invoice total.
 - Capture-only runs must block XHR/fetch writes, not just stub `execAjx` — a test save of CA-B002055 got through
-  (Nov 2026, undone). Never call `WebMethodClient` from Python while driving the browser: it logs the tab out.
+  (Nov 2026, undone). `WebMethodClient` now borrows the debug Chrome's Xoro session (`xoro_cdp/cookies.mjs`), so API scripts no longer log the
+  browser out (Nov 2026); it only logs in itself when the debug Chrome isn't logged in.
 - QuickBooks: bank feed "For Review" and Reconcile are UI-only. Get the 9/30 bank balance from the user
   (Banking tile shows today's balance — back out later activity).

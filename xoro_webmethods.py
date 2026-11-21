@@ -214,11 +214,31 @@ def _read_env_cookie():
     return None
 
 
+def _browser_cookie(host="momentum.xoro.one"):
+    """The debug Chrome's Xoro session cookies, or None.
+
+    Xoro allows one session per user, so logging in from Python logs the browser out. Borrowing
+    the browser's session lets API scripts and the debug Chrome work at the same time.
+    """
+    import subprocess
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "xoro_cdp", "cookies.mjs")
+    try:
+        out = subprocess.run(["node", helper, host], capture_output=True, text=True, timeout=15).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out if "__Auth=" in out else None
+
+
+def _login_prefer_browser():
+    """Re-login: reuse the debug Chrome's session when it has one, else log in from Python."""
+    return _browser_cookie() or xoro_login.login()
+
+
 class WebMethodClient:
     def __init__(self, base_url=DEFAULT_BASE_URL, cookie=None, login_fn=None, transport=None):
         self.base_url = base_url.rstrip("/")
         self.cookie = cookie
-        self._login = login_fn or xoro_login.login
+        self._login = login_fn or _login_prefer_browser
         self._transport = transport or _http_transport
 
     @classmethod
@@ -226,7 +246,7 @@ class WebMethodClient:
         base = DEFAULT_BASE_URL
         if os.path.exists(config_path):
             base = json.load(open(config_path)).get("base_url", DEFAULT_BASE_URL)
-        return cls(base_url=base, cookie=_read_env_cookie(), transport=transport)
+        return cls(base_url=base, cookie=_browser_cookie() or _read_env_cookie(), transport=transport)
 
     def _url(self, service, method):
         return "{}/WebServices/{}.asmx/{}".format(self.base_url, service, method)

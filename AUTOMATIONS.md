@@ -212,8 +212,8 @@ Not built yet. One command for both stores: missing orders from the short deposi
 read each error → stock shortage: post the adjustment (1st of the closing month, short location, 7081) (**repeat-short components IF and GL: +50 at a time**; other SKUs: the
 qty the order is short — user, 2026-11-20) → retry one order at a time up to 5 tries → `shopify_deposits.py --retry` →
 report (imported / adjustments posted / needs the user: customer names, BOMs, state errors, give-ups). Runs in the
-background while other work goes on. Prerequisite: `WebMethodClient` borrows the debug Chrome's Xoro session
-(cookies via CDP) instead of logging in, so API scripts stop logging the browser out (Xoro allows one session).
+background while other work goes on. Prerequisite done 2026-11-21: `WebMethodClient` borrows the debug Chrome's Xoro session (`xoro_cdp/cookies.mjs`), so
+API scripts no longer log the browser out.
 - **Noise:** ~1,631 of the connector's 1,745 errors are 2023–2025 orders blocked by locked accounting periods — ignore them.
 - **Verified:** Sep 2026 close (2026-10-19) — 19 missing SC orders; 15 adjustments `SC-IA020213`–`SC-IA020228` (incl. IF +11, AUM-AB-AC-A-A +3); 16 orders imported in two retry rounds; all 9 short SC deposits (BD060655–BD060665) now equal their payouts; all 19 orders imported (36603, 36681, 36902 via the fixes below).
 
