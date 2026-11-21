@@ -59,15 +59,18 @@
     },
     "wise_cad": {
       "search": "Wise (CAD)",
-      "option": "1180 - Wise (CAD)"
+      "option": "1180 - Wise (CAD)",
+      "bank_config": "wise"
     },
     "wise_eur": {
       "search": "Wise (EUR)",
-      "option": "1195 - Wise (EUR)"
+      "option": "1195 - Wise (EUR)",
+      "bank_config": "wise"
     },
     "wise_gbp": {
       "search": "Wise (GBP)",
-      "option": "1190 - Wise (GBP)"
+      "option": "1190 - Wise (GBP)",
+      "bank_config": "wise"
     }
   }
 }
