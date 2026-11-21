@@ -207,6 +207,20 @@ A short Shopify deposit (memo `- ERROR: <orders>`) almost always means the order
   watches surfaced IF, then GL, one component per round. 37104 (customer name) → ticket T094783; 69551 (US, "București")
   → ticket T094782; 36956 (no BOM for CJKB-C-C) → emailed.
 
+### Missing refund (order refunded on Amazon/Shopify but not in Xoro)
+Recorded from the user doing it on 2026-11-21 (order 68871, Amazon refund 114-0302786-8585049, $535). Two saves:
+1. **Credit memo from the original invoice** — open the order's invoice (`US-I…`, via the order # → invoice),
+   *Create Credit Memo*: `CreditMemoWebMethods.createCreditMemoFromInvoice(creditMemoJsonObj)`. Header from the invoice
+   (customer, store, AR, currency, invoice's rate), **TxnDate = the refund date** on the marketplace, `ReturnTypeId 10`;
+   each line `ReturnCodeId 20` (CS), `ReturnNotes` e.g. "amzn", qty/amount refunded. → `US-C005681`.
+2. **Refund the resulting customer credit** — `CustomerCreditWebMethods.createRefundFromCustomerCredit(jsonData)` with
+   `{creditId, refundObj:{InvoiceId, PaymentMethodId "1" Cash (type 10), RefundFromAccntId = 1211 Undeposited Funds (USD)
+   B7D1AC005C248D2F07701ECC47A0, Amount, RefNo = the order number, TxnDate = refund date, CurrencyId, ExchangeRate}}`.
+   Xoro then calls `updateCreditMemo` itself. → `CA-CR004557`, a −535 *Refund Customer Credit* row in Undeposited Funds
+   with `ChequeNo` = the order number, which the payout deposit picks up.
+- Refunding **from 1211 Undeposited Funds** is what makes it depositable — don't refund from a bank account.
+- MISC (non-inventory) lines return no stock; an inventory item line would put the unit back.
+
 ### Planned: `shopify_fix.py` — run the whole loop unattended
 Not built yet. One command for both stores: missing orders from the short deposits' memos → connector login per store →
 read each error → stock shortage: post the adjustment (1st of the closing month, short location, 7081) (**repeat-short components IF and GL: +50 at a time**; other SKUs: the
