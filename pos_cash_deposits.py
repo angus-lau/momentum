@@ -29,7 +29,8 @@ Usage:
 
 import re
 import sys
-import webbrowser
+import os
+import subprocess
 from datetime import date
 from decimal import Decimal
 
@@ -195,7 +196,7 @@ def run(month, dry_run=False, open_browser=False):
     print("%s  -> find %s (dated %s)"
           % (url, number, obj["BankDepositHeaderObj"]["TxnDate"]))
     if open_browser:
-        webbrowser.open(url)
+        subprocess.run(["node", os.path.join(os.path.dirname(os.path.abspath(__file__)), "xoro_cdp", "cdp_open.mjs"), url])  # debug Chrome, not the default browser
     return created
 
 

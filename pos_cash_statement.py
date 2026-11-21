@@ -35,7 +35,7 @@ Usage:
 import csv
 import os
 import sys
-import webbrowser
+import subprocess
 from datetime import date
 from decimal import Decimal
 
@@ -47,7 +47,7 @@ BASE = ("/Users/angus/Library/CloudStorage/OneDrive-St.MoritzWatch/"
         "Accounting Docs/Bank Reconciliations")
 FOLDER = "Service Centre Cash"
 CSV_HEADER = ["**Date", "**Amount", "Payee", "Description", "Reference", "ChequeNumber"]
-RECONCILE_PAGE = "https://momentum.xoro.one/Accounting/BankReconcile/BankReconcile.aspx"
+RECONCILE_PAGE = "https://momentum.xoro.one/Accounting/BankReconcile/BankReconcilation.aspx"
 ROUNDING_LIMIT = Decimal("1")      # anything smaller is cash rounding, not a real difference
 
 
@@ -200,7 +200,7 @@ def run(month, dry_run=False, open_rec=True):
     rec_id = hdr.get("Id") if isinstance(hdr, dict) else hdr
     print("opened reconciliation %s, ending %.2f on %s" % (rec_id, closing, end.isoformat()))
     print(RECONCILE_PAGE)
-    webbrowser.open(RECONCILE_PAGE)
+    subprocess.run(["node", os.path.join(os.path.dirname(os.path.abspath(__file__)), "xoro_cdp", "cdp_open.mjs"), RECONCILE_PAGE])  # debug Chrome, not the default browser
     return rec_id
 
 
