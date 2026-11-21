@@ -51,6 +51,18 @@ Dr expense (+ Dr 2226 GST) / Cr the card account.
   charges less the 35.83 Costco credit; all balanced, no duplicates. Same day: 4009 (JE017339–398), TD
   (JE017399–428), Sofia non-DHL (JE017429–463) all tie to their statements less held-out carrier lines.
 
+## ✅ Card / bank rec ticking (`card_rec.py`)
+
+`python3 card_rec.py <GL>` (dry run) → `--commit` ticks the open reconciliation's statement lines against Xoro.
+Calls recorded from the user ticking rec 1005 (2026-11-21): `ConnectBankWebMethods.getBankTransactionsToReconcile`
+(statement lines; unsigned, `TypeName` debit/credit), `searchTransactionToReconcile` (Xoro side), and
+`reconcileBankAccountLine(bnkTxnId, statementId, accntTxnOBjList, multipleTranFlag, bankRecHeaderId)` per line.
+- Match = same signed amount, date within 5 days, same description preferred (card JEs carry it as memo).
+- `MatchedFlag`/`MatchedTxnId` on a line is only **Xoro's suggestion** — still unticked. A suggestion that differs
+  from our match is held; so is any line **≥ $1,000** (user rule) until `--include-large` after review.
+- Never clicks Finish; the user finishes and sends the report → `file_rec.py`.
+- **Oct 2026:** recs 1005 (4009) and 1008 (Sofia) ticked to difference 0.00 (68 + 36 lines).
+
 ## ✅ Ceridian (Dayforce) Payroll Bill
 
 Turns a Dayforce "Funds Summary" payroll PDF into a Vendor Bill in Xoro for Ceridian Corporation — booking wages/CPP/EI by department plus the Dayforce service fee, netted against LTD so the bill balances exactly to the PDF's "Total Payment Due". Built once via browser (no API schema existed for Bill creation), payload now captured for future API-driven runs.
