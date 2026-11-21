@@ -36,6 +36,8 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
 ## Recurring items and how they are booked
 - **Umpqua → BMO wires lose $25**: Fund Transfer at the amount sent + JE Dr 7450 / Cr receiving bank $25.
   Umpqua USD → BMO CAD wires: transfer in USD at the rate printed on the wire (e.g. `97129CAD1.3766`).
+- **"BOB INTL WIRES"** on Umpqua = transfer to **BMO USD 1170**; the rate-coded lines (e.g. `100910CAD1.4238`) = transfer
+  to **BMO CAD 1160** at that rate (Todoist comments on Umpqua Corp 1140). Book both once the BMO statement confirms the amount.
 - **"FUNDS TRANSFER TO DEP XXXXXX7206"** on Umpqua: an outside account; book a JE to the expense
   (7235 Digital Advertising / 7060 Delivery / 7020 Duties) — ask which.
 - **"DEP 5041721448" book transfers**: SMWCO's QBO Checking (1448); Xoro side is 1260 Intercompany.
