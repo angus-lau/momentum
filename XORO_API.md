@@ -613,6 +613,9 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 
 **Vendor prepayments / credits**
 - `VendorPrepaymentWebMethods.voidVendorPrepaymentById {vendorPrepaymentId, ChequeVoidDttm:""}` (Id = GL `RefId`).
+- Re-allocating prepayments on a bill: `updateBillPayment` ignores changed `VendorPrePaymentItemArr` (no-op). Void the
+  $0-cash payment (`voidBillPayment` with the `getBillPaymentObj` object) and re-apply with `xoro_cdp/apply_prepay.js`
+  (`populatePrePaymentDetailArr(i)`, set `AmountToUse`, `billPymnt_ApplyCredit()`). Proven 2026-11-22: B001723/B001724.
 - Create: `/VendorPrepayment/VendorPrepayment.aspx` → `saveVendorPrepayment` → `createVendorPrepayment(vpObjJson)` (template
   `xoro_cdp/vendor_prepay.js`: store, vendor id, date, amount, method 1 Cash, bank `PaymentAccntId`, 13xx `AssetAccntId`; the page
   fills currency + the date's rate). Proven 2026-11-22: CA-VP000339 (Uwant 21,259) / CA-VP000340 (Evertime 17,455) from 1170.
