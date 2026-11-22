@@ -3,6 +3,7 @@
     python3 card_rec.py 2105            # dry run: show the matches for 2105's open reconciliation
     python3 card_rec.py 2105 --commit   # tick them; never clicks Finish
     Lines of $1,000+ and lines where Xoro's suggested match differs from ours are held for review.
+    --include-large ticks the $1,000+ ones; --reviewed ticks every held line (after the user approved the list).
 
 Calls recorded from the user ticking rec 1005 by hand (2026-11-21):
   statement lines  ConnectBankWebMethods.getBankTransactionsToReconcile  (Amount > 0, TypeName debit/credit)
@@ -108,7 +109,7 @@ def _rows(r):
     return d.get("rows", d) if isinstance(d, dict) else d
 
 
-def run(gl, commit=False, include_large=False):
+def run(gl, commit=False, include_large=False, reviewed=False):
     from xoro_webmethods import WebMethodClient
     c = WebMethodClient.from_config()
     acct = next(a for a in c.get_bank_statement_accounts() if a["Name"].startswith(gl + " "))
@@ -128,6 +129,8 @@ def run(gl, commit=False, include_large=False):
     txns = [t for t in txns if not t.get("RECONCILED_FLAG")]
     pairs, left, _free = match(lines, txns)
     auto, held = review(pairs, cap=float("inf") if include_large else CAP)
+    if reviewed:              # user has seen the REVIEW list and approved it
+        auto, held = auto + held, []
     print("%s  rec %s ending %s: %d open line(s): %d to tick, %d held for review, %d unmatched"
           % (acct["Name"], rec_id, end, len(lines), len(auto), len(held), len(left)))
     for ln, ts, why in held:
@@ -151,4 +154,5 @@ def run(gl, commit=False, include_large=False):
 
 
 if __name__ == "__main__":
-    run(sys.argv[1], commit="--commit" in sys.argv, include_large="--include-large" in sys.argv)
+    run(sys.argv[1], commit="--commit" in sys.argv, include_large="--include-large" in sys.argv,
+        reviewed="--reviewed" in sys.argv)
