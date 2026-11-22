@@ -613,6 +613,9 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 
 **Vendor prepayments / credits**
 - `VendorPrepaymentWebMethods.voidVendorPrepaymentById {vendorPrepaymentId, ChequeVoidDttm:""}` (Id = GL `RefId`).
+- Create: `/VendorPrepayment/VendorPrepayment.aspx` → `saveVendorPrepayment` → `createVendorPrepayment(vpObjJson)` (template
+  `xoro_cdp/vendor_prepay.js`: store, vendor id, date, amount, method 1 Cash, bank `PaymentAccntId`, 13xx `AssetAccntId`; the page
+  fills currency + the date's rate). Proven 2026-11-22: CA-VP000339 (Uwant 21,259) / CA-VP000340 (Evertime 17,455) from 1170.
 - `VendorCreditWebMethods.getVendorCreditSchema` → fill → `createVendorCredit(vendorCreditJsonObj)`; expense line with
   `TaxCodeId` (2 = GST Only, 3 = Standard (BC)), `TaxAmt`, `TaxAmtNonCl` (PST share).
 - **Template `xoro_cdp/vendor_credit.js`** (proven 2026-10-31, CA-V000083/84): `/VendorCredit/VendorCredit.aspx`; picking the
