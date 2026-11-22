@@ -238,6 +238,9 @@ Recorded from the user doing it on 2026-11-21 (order 68871, Amazon refund 114-03
    with `ChequeNo` = the order number, which the payout deposit picks up.
 - Refunding **from 1211 Undeposited Funds** is what makes it depositable — don't refund from a bank account.
 - MISC (non-inventory) lines return no stock; an inventory item line would put the unit back.
+- A refunded **Shopify** order whose deposit was already applied to an invoice goes the same way (recorded 2026-11-22,
+  69787: invoice US-I194959 → credit memo US-C005682 → refund CA-CR004558 from 1211, Ref 69787), then
+  `shopify_deposits.py --retry momentum` picks the refund up. The inventory line returns the unit to stock.
 
 ### Planned: `shopify_fix.py` — run the whole loop unattended
 Not built yet. One command for both stores: missing orders from the short deposits' memos → connector login per store →

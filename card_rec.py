@@ -17,6 +17,7 @@ listed and left for the user.
 
 import datetime as dt
 import json
+import re
 import sys
 
 DAYS = 5
@@ -33,37 +34,72 @@ def signed(line):
     return round(-line["Amount"] if (line.get("TypeName") or "").lower() == "debit" else line["Amount"], 2)
 
 
+PREPAY_DAYS = 120   # prepayments get entered when the order is placed, weeks before the wire leaves
+
+
+def _first_word(name):
+    w = re.findall(r"[A-Z]{4,}", (name or "").upper())
+    return w[0] if w else None
+
+
 def match(lines, txns, days=DAYS):
-    """[(line, txn)], unmatched_lines, unmatched_txns. Pure: no Xoro calls (tested)."""
+    """[(line, [txn, ...])], unmatched_lines, unmatched_txns. Pure: no Xoro calls (tested).
+
+    1. one transaction: same signed amount within `days` (prefer same description, then dated on/before the bank
+       date, then nearest); or a vendor prepayment of the same amount up to PREPAY_DAYS earlier whose vendor's name
+       appears in the bank description (Ronda 8/24 prepayment, 10/28 wire).
+    2. two transactions summing to the line within `days` — a wire that arrived $25 short ticks its transfer and the
+       separate fee JE together.
+    """
     free = list(txns)
     pairs, left = [], []
     for ln in sorted(lines, key=lambda l: _d(l["PostDate"])):
         amt, day = signed(ln), _d(ln["PostDate"])
         desc = (ln.get("Description") or "").strip().upper()
-        cands = [t for t in free if round(t["AMOUNT"], 2) == amt and abs((_d(t["TXN_DATE"]) - day).days) <= days]
+        near = lambda t: abs((_d(t["TXN_DATE"]) - day).days) <= days
+        cands = [t for t in free if round(t["AMOUNT"], 2) == amt and near(t)]
         if not cands:
+            cands = [t for t in free if round(t["AMOUNT"], 2) == amt and "PREPAYMENT" in (t.get("TXN_TYPE_NAME") or "").upper()
+                     and 0 <= (day - _d(t["TXN_DATE"])).days <= PREPAY_DAYS
+                     and _first_word(t.get("ENTITY_NAME")) and _first_word(t.get("ENTITY_NAME")) in desc]
+        if cands:
+            best = min(cands, key=lambda t: (desc not in (t.get("MEMO") or "").upper(), _d(t["TXN_DATE"]) > day,
+                                             abs((_d(t["TXN_DATE"]) - day).days)))
+            free.remove(best)
+            pairs.append((ln, [best]))
+        else:
             left.append(ln)
-            continue
-        # same description first; then a transaction dated on/before the bank date (money leaves PayPal before it
-        # reaches the bank — a 10/26 credit is FT 10/23, not FT 10/28); then the nearest date
-        best = min(cands, key=lambda t: (desc not in (t.get("MEMO") or "").upper(), _d(t["TXN_DATE"]) > day,
-                                         abs((_d(t["TXN_DATE"]) - day).days)))
-        free.remove(best)
-        pairs.append((ln, best))
-    return pairs, left, free
+    still = []
+    for ln in left:
+        amt, day = signed(ln), _d(ln["PostDate"])
+        near = [t for t in free if abs((_d(t["TXN_DATE"]) - day).days) <= days]
+        combo = next(((a, b) for i, a in enumerate(near) for b in near[i + 1:]
+                      if round(a["AMOUNT"] + b["AMOUNT"], 2) == amt), None)
+        if combo:
+            for t in combo:
+                free.remove(t)
+            pairs.append((ln, list(combo)))
+        else:
+            still.append(ln)
+    return pairs, still, free
 
 
 def review(pairs, cap=CAP):
     """Split matches into (auto, held). Held: |amount| >= cap, or Xoro suggested a *different* transaction than ours
     (its MatchedTxnId) — those need a look before ticking. Pure (tested)."""
     auto, held = [], []
-    for ln, t in pairs:
+    for ln, ts in pairs:
         why = []
         if abs(signed(ln)) >= cap:
             why.append(">= $%d" % cap)
-        if ln.get("MatchedTxnId") and ln["MatchedTxnId"] != t.get("TXN_ID"):
+        if len(ts) > 1:
+            why.append("%d entries" % len(ts))
+        elif ts[0].get("TXN_TYPE_NAME", "").upper().endswith("PREPAYMENT") and abs((_d(ts[0]["TXN_DATE"]) - _d(ln["PostDate"])).days) > DAYS:
+            why.append("prepayment dated %s" % ts[0]["TXN_DATE"])
+        t = ts[0]
+        if len(ts) == 1 and ln.get("MatchedTxnId") and ln["MatchedTxnId"] != t.get("TXN_ID"):
             why.append("Xoro suggests %s" % ln.get("MatchedRefNumber"))
-        (held if why else auto).append((ln, t, ", ".join(why)))
+        (held if why else auto).append((ln, ts, ", ".join(why)))
     return auto, held
 
 
@@ -94,17 +130,17 @@ def run(gl, commit=False, include_large=False):
     auto, held = review(pairs, cap=float("inf") if include_large else CAP)
     print("%s  rec %s ending %s: %d open line(s): %d to tick, %d held for review, %d unmatched"
           % (acct["Name"], rec_id, end, len(lines), len(auto), len(held), len(left)))
-    for ln, t, why in held:
-        print("  REVIEW    %s %10.2f  %-40s -> %s %s  (%s)" % (ln["PostDate"], signed(ln), (ln.get("Description") or "")[:40],
-                                                         t.get("REF_NUMBER"), t.get("TXN_DATE"), why))
+    for ln, ts, why in held:
+        print("  REVIEW    %s %10.2f  %-40s -> %s  (%s)" % (ln["PostDate"], signed(ln), (ln.get("Description") or "")[:40],
+                                                      " + ".join("%s %s" % (t.get("REF_NUMBER"), t.get("TXN_DATE")) for t in ts), why))
     for ln in left:
         print("  UNMATCHED %s %10.2f  %s" % (ln["PostDate"], signed(ln), (ln.get("Description") or "")[:50]))
     if not commit:
         print("dry run — pass --commit to tick the %d line(s)" % len(auto))
         return
-    for ln, t, _ in auto:
+    for ln, ts, _ in auto:
         obj = [{"accntTxnId": t["TXN_ID"], "tblRefId": t["REF_ID"], "txnTypeId": t["TXN_TYPE_ID"],
-                "fAccountingId": t["ACCOUNT_ID"], "amount": t["AMOUNT"], "txnTableId": t["ID"]}]
+                "fAccountingId": t["ACCOUNT_ID"], "amount": t["AMOUNT"], "txnTableId": t["ID"]} for t in ts]
         c.call("ConnectBankWebMethods", "reconcileBankAccountLine", bnkTxnId=str(ln["Id"]),
                statementId=str(ln["BankStatementId"]), accntTxnOBjList=json.dumps(obj),
                multipleTranFlag="true", bankRecHeaderId=str(rec_id))
