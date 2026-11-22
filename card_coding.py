@@ -68,7 +68,7 @@ def _months_back(end, n):
         y, m = (y, m - 1) if m > 1 else (y - 1, 12)
 
 
-def history(card_gl, end, months=12, client=None):
+def history(card_gl, end, months=12, client=None, key=None):
     """{merchant key: Counter(split signature -> [JE lines template, ref])} from past card JEs."""
     client = client or XoroClient()
     rows = []
@@ -92,7 +92,7 @@ def history(card_gl, end, months=12, client=None):
                  "entity": l.get("EntityAccountId") or "", "entity_name": l.get("EntityFullName") or ""}
                 for l in other]
         sig = tuple(sorted((t["gl"], round(t["share"], 2)) for t in tmpl))
-        slot = hist[merchant_key(card[0]["Memo"] or "")].setdefault(sig, {"n": 0, "tmpl": tmpl, "ref": ref})
+        slot = hist[(key or merchant_key)(card[0]["Memo"] or "")].setdefault(sig, {"n": 0, "tmpl": tmpl, "ref": ref})
         slot["n"] += 1
         slot.setdefault("refs", {})[ref] = tmpl   # the sheet's template may be any JE of this split
     return hist
