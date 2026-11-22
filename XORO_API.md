@@ -613,6 +613,12 @@ All on `/WebServices/*.asmx`, JSON bodies, object params double-encoded (`json.d
 
 **Vendor prepayments / credits**
 - `VendorPrepaymentWebMethods.voidVendorPrepaymentById {vendorPrepaymentId, ChequeVoidDttm:""}` (Id = GL `RefId`).
+- **Changing a reconciled prepayment** ("Cannot update. Selected Payment is reconciled"): un-tick just its line with
+  `ConnectBankWebMethods.unReconcileBankAccountLine(bnkTxnId, statementId, bankRecHeaderId)` (find the line with
+  `BankReconcileWebMethods.getBankReconciledTransactions(bankRecId)` → `ReconcileBnkTxnId`, statement id via
+  `getBankTransactionFromId`), edit it (`xoro_cdp/vp_revendor.js`, page session EntityId **39**), then re-tick with
+  `reconcileBankAccountLine` into the same rec. The closed rec's difference is unchanged. Proven 2026-11-22: CA-VP000324
+  (rec 996) and CA-VP000315 (rec 985) moved from Dong Guan Zhen Shang to Time Token.
 - Re-allocating prepayments on a bill: `updateBillPayment` ignores changed `VendorPrePaymentItemArr` (no-op). Void the
   $0-cash payment (`voidBillPayment` with the `getBillPaymentObj` object) and re-apply with `xoro_cdp/apply_prepay.js`
   (`populatePrePaymentDetailArr(i)`, set `AmountToUse`, `billPymnt_ApplyCredit()`). Proven 2026-11-22: B001723/B001724.

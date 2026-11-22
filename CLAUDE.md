@@ -51,6 +51,8 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
 - **BMO CAD "Interest"** (overdraft interest) → **7580 Interest Expense** (user, Nov 2026); the O/D facility fee stays 7450.
 - **Manulife on BMO CAD**: the varying **BPY/FAC** debit = group benefits → **7840 Employee Benefits** (user, Nov 2026; Jul–Sep 2026
   went to 2900 by mistake); the fixed MSP/DIV ones (~$584 / $514) = Simon → 2900.
+- **Time Token = "Dong Guan Zhen Shang"** on wires (Time Token's Dongguan factory): book Dongguan Zhenshang wire
+  prepayments under vendor **TIME TOKEN COMPANY LIMITED** (341) so they can be applied to Time Token bills.
 - **Livingston** debits are duties (7020); a large Livingston *credit* is a tariff (IEEPA) refund → Cr 7020.
 - **Restaurants on any card → 7320 Meals and Entertainment** (user, 2026-11-19): business expense, not 2900.
 - **CAD deposits use rate 1** (Service Centre). A USD rate on a CAD deposit inflates it and blocks the rec.

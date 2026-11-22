@@ -26,6 +26,8 @@ MAP = [  # (pattern in report title, folder, Todoist task)
     (r"BMO 44569097", BR + "BMO USD", "BMO USD"),
     (r"Umpqua", BR + "Umpqua SMWCorp", "Umpqua Corp 1140"),
     (r"Wise \(EUR\)", BR + "Wise EUR", "Wise EUR"),
+    (r"Wise \(GBP\)", BR + "Wise GBP", "Wise GBP"),
+    (r"Wise \(CAD\)", BR + "Wise CAD", "Wise CAD"),
     (r"Cash - Service Centre", BR + "Service Centre Cash", "Shopify Service Centre Cash"),
     (r"Paypal USD", BR + "Paypal", "PayPal USD"),
 ]
