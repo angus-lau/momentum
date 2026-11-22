@@ -49,6 +49,8 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   the user looks up the breakdown in BMO first; don't code it. **"CUST # PP2…"** debits = Ceridian payroll → pay that
   pay period's Ceridian bill from 1160 (Cash), dated the bill date (Xoro refuses payment before the bill date).
 - **BMO CAD "Interest"** (overdraft interest) → **7580 Interest Expense** (user, Nov 2026); the O/D facility fee stays 7450.
+- **Manulife on BMO CAD**: the varying **BPY/FAC** debit = group benefits → **7840 Employee Benefits** (user, Nov 2026; Jul–Sep 2026
+  went to 2900 by mistake); the fixed MSP/DIV ones (~$584 / $514) = Simon → 2900.
 - **Livingston** debits are duties (7020); a large Livingston *credit* is a tariff (IEEPA) refund → Cr 7020.
 - **Restaurants on any card → 7320 Meals and Entertainment** (user, 2026-11-19): business expense, not 2900.
 - **CAD deposits use rate 1** (Service Centre). A USD rate on a CAD deposit inflates it and blocks the rec.
