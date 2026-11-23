@@ -14,6 +14,7 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   `LoggedOut.aspx`/`login.aspx`, ask the user to log in on the debug Chrome (`--remote-debugging-port=9222`).
 - FY2026 (to 2026-07-31) is under audit and **locked**. Changes there need the user to unlock and re-lock,
   and anything that moves a 7/31 balance must be reported to the auditors (D&H, Pan Zhang).
+- Rec report PDF for a finished rec: `xoro_cdp/rec_report.sh <bankRecId> "<YY MM>"` (exports from the debug Chrome, files it).
 - Rec PDFs the user sends: `python3 file_rec.py <pdf>` files it and ticks Todoist only at $0.00 uncleared.
   Old carry-overs (FY2025 AJE JE015996 on BMO USD / Umpqua; 2022–2025 pennies) are normal — explain, then tick on request.
 
