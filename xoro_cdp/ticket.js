@@ -4,7 +4,7 @@
   const SEND = __SEND__, w = ms => new Promise(r => setTimeout(r, ms));
   $('#txt_ticket_subject').val(__SUBJECT__).trigger('change');
   $('#txt_ticket_description').summernote('code', __BODY__);
-  $('#dd_ticket_severity').selectpicker('val', '30').trigger('change');   // Normal
+  $('#dd_ticket_severity').selectpicker('val', '10').trigger('change');   // Urgent — user: always Urgent (2026-11-23)
   $('#dd_ticket_type').selectpicker('val', '10').trigger('change');       // Seeing an error
   $('#dd_ticket_module').selectpicker('val', '50').trigger('change'); await w(2500);   // E-Commerce Connection
   $('#dd_ticket_subModule').selectpicker('val', '121').trigger('change'); await w(500); // Shopify
