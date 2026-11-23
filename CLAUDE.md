@@ -38,8 +38,10 @@ Read before working: `AUTOMATIONS.md` (what is scripted and how), `XORO_API.md` 
   Umpqua USD → BMO CAD wires: transfer in USD at the rate printed on the wire (e.g. `97129CAD1.3766`).
 - **"BOB INTL WIRES"** on Umpqua = transfer to **BMO USD 1170**; the rate-coded lines (e.g. `100910CAD1.4238`) = transfer
   to **BMO CAD 1160** at that rate (Todoist comments on Umpqua Corp 1140). Book both once the BMO statement confirms the amount.
-- **"FUNDS TRANSFER TO DEP XXXXXX7206"** on Umpqua: an outside account; book a JE to the expense
-  (7235 Digital Advertising / 7060 Delivery / 7020 Duties) — ask which.
+- **"FUNDS TRANSFER TO DEP XXXXXX7206 FROM UACHPL"** on Umpqua = Umpqua ACH bill pay (vendor payments). The payee is
+  in Umpqua online banking → ACH payments list (e.g. Oct 2026: Scan Global $270 → 7060, Matix Labs $500 → 7235). Ask which GL.
+- **Rec off by fractions of a cent** (4-decimal Shopify FX lines) or an old penny: post a JE to 7450, upload a one-line
+  statement for the same amount (`create_bank_statement` with `FAccountingId`), tick, finish (Umpqua Oct 2026, JE017581).
 - **"DEP 5041721448" book transfers**: SMWCO's QBO Checking (1448); Xoro side is 1260 Intercompany.
 - **Branch deposits at BMO CAD**: till cash = Cr 1121 Cash–Service Centre; Simon's own cash = Cr 2900 Shareholder Loan.
 - **Redo** (since Nov 2026): Shopify `x-redo` line → item `x-redo` → Cr 4950 Redo Coverage Fees. Redo's monthly
