@@ -336,6 +336,9 @@ Authenticated by the `.ASPXAUTH`-style **session cookie** — the *legitimate* a
 ### Key services & methods
 
 **`JournalEntryWebMethods.asmx`** — the reconcile workhorse
+- **JE line on an AP-type account (2100/2120)** needs a vendor, else "Account Payable must have vendor type entity":
+  set `EntityAccountId` (= the vendor's `IntAccntId` from `Common.getGeneralEntityListByKeyword`), `EntityCurrencyId`,
+  `EntityFullName`, `EntityTypeId` 20, `EntityTypeName` "Vendor" (proven 2026-11-28, JE017583–585 → City of Vancouver).
 - **`saveJournalEntry(jeObjJson)`**, `updateJournalEntry`, `voidJournalEntry`
 - `getJournalEntryObjSchema` (returns the JE shape), `getDataForJE`, `getJournalEntryObjInfoFromId`
 - `jeObjJson` shape:
